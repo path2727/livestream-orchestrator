@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Room View</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h1 { margin-bottom: 20px; }
+        p { margin-bottom: 10px; }
+        ul { list-style-type: none; padding: 0; }
+        li { margin-bottom: 5px; }
+        form { margin-bottom: 20px; }
+        input[type="text"] { padding: 8px; width: 200px; }
+        button { padding: 8px 16px; background-color: #007bff; color: white; border: none; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        .error { color: red; }
+        .section { margin-bottom: 20px; border: 1px solid #ddd; padding: 10px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+<h1>Room: <span id="streamId"></span></h1>
+
+<!-- Room Status -->
+<div class="section">
+    <h2>Status</h2>
+    <p>Status: <span id="status">Loading...</span></p>
+    <p>Started At: <span id="startedAt">Loading...</span></p>
+</div>
+
+<!-- Participants -->
+<div class="section">
+    <h2>Participants (Live Count: <span id="count">0</span>)</h2>
+    <ul id="participants"></ul>
+</div>
+
+<!-- Join Form -->
+<div class="section">
+    <h2>Join Room</h2>
+    <form id="join-form">
+        <label for="userId">User ID:</label>
+        <input type="text" id="userId" placeholder="Enter your user ID" required>
+        <button type="submit">Join</button>
+    </form>
+    <p id="join-error" class="error"></p>
+    <p id="join-success" style="color: green;"></p>
+</div>
+
+<!-- Stop Room Button -->
+<div class="section">
+    <h2>Manage Room</h2>
+    <button id="stop-room-btn">Stop Room</button>
+    <p id="stop-error" class="error"></p>
+</div>
+
+<script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const streamId = urlParams.get('streamId');
+    if (!streamId) {
+        alert('No stream ID provided');
+        window.location.href = '/';
+    }
+    document.getElementById('streamId').textContent = streamId;
+
+    const apiUrl = 'http://localhost:3000';  // Update to deployed URL if needed
+
+    // Function to update UI with state
+    function updateUI(state) {
+        document.getElementById('status').textContent = state.status;
+        document.getElementById('startedAt').textContent = state.startedAt;
+        document.getElementById('count').textContent = state.participants.length;
+
+        const ul = document.getElementById('participants');
+        ul.innerHTML = '';
+        state.participants.forEach(p => {
+            const li = document.createElement('li');
+            li.textContent = p;
+            ul.appendChild(li);
+        });
+    }
+
+    // Fetch initial state
+    async function loadInitialState() {
+        try {
+            const res = await fetch(`${apiUrl}/streams/${streamId}/state`);
+            if (!res.ok) throw new Error('Failed to fetch state');
+            const state = await res.json();
+            updateUI(state);
+        } catch (err) {
+            console.error('Error loading state:', err);
+        }
+    }
+
+    // SSE for real-time updates
+    const eventSource = new EventSource(`${apiUrl}/streams/${streamId}/updates`);
+    eventSource.onmessage = (event) => {
+        const state = JSON.parse(event.data);
+        updateUI(state);
+    };
+    eventSource.onerror = (err) => {
+        console.error('SSE error:', err);
+    };
+
+    // Join form submission
+    document.getElementById('join-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const userId = document.getElementById('userId').value.trim();
+        const errorEl = document.getElementById('join-error');
+        const successEl = document.getElementById('join-success');
+        errorEl.textContent = '';
+        successEl.textContent = '';
+
+        if (!userId) {
+            errorEl.textContent = 'User ID is required';
+            return;
+        }
+
+        try {
+            const res = await fetch(`${apiUrl}/streams/${streamId}/join`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || 'Failed to join');
+            }
+            const { token } = data;
+            if (!token) {
+                throw new Error('No token returned');
+            }
+            successEl.textContent = `Joined successfully! Token: ${token.substring(0, 20)}... (copy full token for use: ${token})`;
+            document.getElementById('userId').value = '';  // Clear input
+        } catch (err) {
+            errorEl.textContent = err.message;
+        }
+    });
+
+    // Stop room button
+    document.getElementById('stop-room-btn').addEventListener('click', async () => {
+        const errorEl = document.getElementById('stop-error');
+        errorEl.textContent = '';
+
+        if (!confirm('Are you sure you want to stop this room?')) return;
+
+        try {
+            const res = await fetch(`${apiUrl}/streams/${streamId}`, { method: 'DELETE' });
+            if (!res.ok && res.status !== 204) throw new Error('Failed to stop room');
+            alert('Room stopped successfully');
+            window.location.href = '/';  // Redirect to list
+        } catch (err) {
+            errorEl.textContent = err.message;
+        }
+    });
+
+    // Load initial state on page load
+    loadInitialState();
+</script>
+</body>
+</html>

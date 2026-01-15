@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Active Streams</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h1 { margin-bottom: 20px; }
+        form { margin-bottom: 20px; }
+        input[type="text"] { padding: 8px; width: 200px; }
+        button { padding: 8px 16px; background-color: #007bff; color: white; border: none; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        ul { list-style-type: none; padding: 0; }
+        li { margin-bottom: 10px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+<h1>Active Streams</h1>
+
+<!-- Form to add a new room -->
+<form id="add-room-form">
+    <label for="room-name">New Room Name:</label>
+    <input type="text" id="room-name" placeholder="Enter room name" required>
+    <button type="submit">Add Room</button>
+</form>
+<p id="add-error" class="error"></p>
+
+<!-- List of existing rooms -->
+<ul id="streams"></ul>
+
+<script>
+    const apiUrl = 'http://localhost:3000';  // Update to your deployed URL if needed
+
+    // Function to fetch and display rooms
+    async function loadRooms() {
+        try {
+            const res = await fetch(`${apiUrl}/streams`);
+            if (!res.ok) throw new Error('Failed to fetch rooms');
+            const data = await res.json();
+            const ul = document.getElementById('streams');
+            ul.innerHTML = '';
+            data.forEach(stream => {
+                const li = document.createElement('li');
+                li.innerHTML = `
+                        <a href="room.html?streamId=${stream.streamId}">${stream.streamId}</a>
+                        (Participants: ${stream.participantCount}, Started: ${stream.startedAt})
+                    `;
+                ul.appendChild(li);
+            });
+        } catch (err) {
+            console.error('Error loading rooms:', err);
+        }
+    }
+
+    // Form submission to add room
+    document.getElementById('add-room-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const roomName = document.getElementById('room-name').value.trim();
+        const errorEl = document.getElementById('add-error');
+        errorEl.textContent = '';
+
+        if (!roomName) {
+            errorEl.textContent = 'Room name is required';
+            return;
+        }
+
+        try {
+            const res = await fetch(`${apiUrl}/streams`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: roomName })
+            });
+            if (!res.ok) throw new Error('Failed to add room');
+            document.getElementById('room-name').value = '';  // Clear input
+            loadRooms();  // Refresh list
+        } catch (err) {
+            errorEl.textContent = err.message;
+        }
+    });
+
+    // Load rooms on page load
+    loadRooms();
+
+    setInterval(loadRooms, 10000);
+</script>
+</body>
+</html>
