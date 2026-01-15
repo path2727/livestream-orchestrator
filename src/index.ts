@@ -52,7 +52,7 @@ interface ExtendedRequest extends Request {
 app.use((req: ExtendedRequest, res: Response, next: NextFunction) => {
     if (req.path === '/webhook') {
         req.rawBody = '';
-        req.setEncoding('utf8');
+        //req.setEncoding('utf8');
         req.on('data', (chunk) => {
             req.rawBody += chunk;
         });
