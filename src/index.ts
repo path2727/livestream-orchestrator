@@ -1,9 +1,9 @@
-import express, { Request, Response, NextFunction } from 'express';
+import express, {NextFunction, Request, Response} from 'express';
 import dotenv from 'dotenv';
-import { RoomServiceClient, WebhookReceiver, AccessToken, WebhookEvent } from 'livekit-server-sdk';
+import {AccessToken, RoomServiceClient, WebhookEvent, WebhookReceiver} from 'livekit-server-sdk';
 import Joi from 'joi';
 import client from 'prom-client';
-import { createClient } from 'redis';
+import {createClient} from 'redis';
 
 dotenv.config();
 
@@ -19,8 +19,8 @@ const roomService = new RoomServiceClient(livekitHost, apiKey, apiSecret);
 const webhookReceiver = new WebhookReceiver(apiKey, apiSecret);
 
 // Main Redis client for commands (get/set/keys/publish)
-const redisCommands = createClient({ url: process.env.REDIS_URL || 'redis://localhost:6379' });
-await redisCommands.connect();
+const redisCommands = createClient({url: process.env.REDIS_URL || 'redis://localhost:6379'});
+await redisCommands.connect().catch(err => console.error('redisSub connect error:', err));
 
 // Duplicate client for pub/sub (avoids mode conflicts)
 const redisSub = redisCommands.duplicate();
@@ -36,8 +36,8 @@ interface StreamState {
 const sseClients = new Map<string, Response[]>();
 
 const register = new client.Registry();
-const activeStreams = new client.Gauge({ name: 'active_streams', help: 'Number of active streams' });
-const totalParticipants = new client.Gauge({ name: 'total_participants', help: 'Total participants across streams' });
+const activeStreams = new client.Gauge({name: 'active_streams', help: 'Number of active streams'});
+const totalParticipants = new client.Gauge({name: 'total_participants', help: 'Total participants across streams'});
 register.registerMetric(activeStreams);
 register.registerMetric(totalParticipants);
 
@@ -50,7 +50,9 @@ interface ExtendedRequest extends Request {
 app.use((req: ExtendedRequest, res: Response, next: NextFunction) => {
     req.rawBody = '';
     req.setEncoding('utf8');
-    req.on('data', (chunk) => { req.rawBody += chunk; });
+    req.on('data', (chunk) => {
+        req.rawBody += chunk;
+    });
     req.on('end', () => {
         next();
     });
@@ -58,8 +60,8 @@ app.use((req: ExtendedRequest, res: Response, next: NextFunction) => {
 
 app.use(express.static('public'));  // Serve static files (e.g., index.html, room.html)
 
-const createStreamSchema = Joi.object({ name: Joi.string().required() });
-const joinStreamSchema = Joi.object({ userId: Joi.string().required() });
+const createStreamSchema = Joi.object({name: Joi.string().required()});
+const joinStreamSchema = Joi.object({userId: Joi.string().required()});
 
 // Get state from Redis
 async function getState(streamId: string): Promise<StreamState | null> {
@@ -70,17 +72,22 @@ async function getState(streamId: string): Promise<StreamState | null> {
 // Update state and publish
 async function updateState(streamId: string, updates: Partial<StreamState>) {
     console.log("updateState");
-    let state = await getState(streamId) || { streamId, status: 'active', participants: [], startedAt: new Date().toISOString() };
+    let state = await getState(streamId) || {
+        streamId,
+        status: 'active',
+        participants: [],
+        startedAt: new Date().toISOString()
+    };
 
     console.log("1");
-    state = { ...state, ...updates };
+    state = {...state, ...updates};
 
     console.log("2");
     await redisCommands.set(`state:${streamId}`, JSON.stringify(state));
     console.log("3");
 
     await redisCommands.publish(`updates:${streamId}`, JSON.stringify(state));
-    console.log("4");
+    console.log(`Published update for ${streamId}:`, JSON.stringify(state));
     updateMetrics();
     console.log("5");
 }
@@ -91,39 +98,39 @@ app.post('/streams', async (req: ExtendedRequest, res: Response) => {
     try {
         bodyData = JSON.parse(req.rawBody || '{}');
     } catch (err) {
-        return res.status(400).json({ error: 'Invalid JSON body' });
+        return res.status(400).json({error: 'Invalid JSON body'});
     }
 
-    const { error, value } = createStreamSchema.validate(bodyData);
-    if (error) return res.status(400).json({ error: error.details[0].message });
+    const {error, value} = createStreamSchema.validate(bodyData);
+    if (error) return res.status(400).json({error: error.details[0].message});
 
     const streamId = value.name;
     try {
         const existingRooms = await roomService.listRooms([streamId]);
         if (existingRooms.length > 0) {
-            return res.status(200).json({ streamId });
+            return res.status(200).json({streamId});
         }
 
-        await roomService.createRoom({ name: streamId, emptyTimeout: 300 });
-        await updateState(streamId, { status: 'active', participants: [], startedAt: new Date().toISOString() });
-        res.status(201).json({ streamId });
+        await roomService.createRoom({name: streamId, emptyTimeout: 300});
+        await updateState(streamId, {status: 'active', participants: [], startedAt: new Date().toISOString()});
+        res.status(201).json({streamId});
     } catch (err) {
-        res.status(500).json({ error: (err as Error).message });
+        res.status(500).json({error: (err as Error).message});
     }
 });
 
 // Stop stream
 app.delete('/streams/:streamId', async (req: Request, res: Response) => {
-    const { streamId } = req.params;
+    const {streamId} = req.params;
     try {
         await roomService.deleteRoom(streamId);
-        await updateState(streamId, { status: 'finished' });
+        await updateState(streamId, {status: 'finished'});
         res.status(204).send();
     } catch (err) {
         if ((err as any).message.includes('room not found')) {
             return res.status(204).send();
         }
-        res.status(500).json({ error: (err as Error).message });
+        res.status(500).json({error: (err as Error).message});
     }
 });
 
@@ -133,17 +140,17 @@ app.post('/streams/:streamId/join', async (req: ExtendedRequest, res: Response) 
     try {
         bodyData = JSON.parse(req.rawBody || '{}');
     } catch (err) {
-        return res.status(400).json({ error: 'Invalid JSON body' });
+        return res.status(400).json({error: 'Invalid JSON body'});
     }
 
-    const { streamId } = req.params;
-    const { error, value } = joinStreamSchema.validate(bodyData);
-    if (error) return res.status(400).json({ error: error.details[0].message });
+    const {streamId} = req.params;
+    const {error, value} = joinStreamSchema.validate(bodyData);
+    if (error) return res.status(400).json({error: error.details[0].message});
 
     const userId = value.userId;
     try {
-        const token = new AccessToken(apiKey, apiSecret, { identity: userId });
-        token.addGrant({ roomJoin: true, room: streamId });
+        const token = new AccessToken(apiKey, apiSecret, {identity: userId});
+        token.addGrant({roomJoin: true, room: streamId});
 
         /*
         // Optimistically add user to state (if not already present)
@@ -156,23 +163,23 @@ app.post('/streams/:streamId/join', async (req: ExtendedRequest, res: Response) 
 
          */
 
-        res.json({ token: await token.toJwt() });
+        res.json({token: await token.toJwt()});
     } catch (err) {
-        res.status(500).json({ error: (err as Error).message });
+        res.status(500).json({error: (err as Error).message});
     }
 });
 
 // Get stream state
 app.get('/streams/:streamId/state', async (req: Request, res: Response) => {
-    const { streamId } = req.params;
+    const {streamId} = req.params;
     const state = await getState(streamId);
-    if (!state) return res.status(404).json({ error: 'Stream not found' });
+    if (!state) return res.status(404).json({error: 'Stream not found'});
     res.json(state);
 });
 
 // SSE for updates
 app.get('/streams/:streamId/updates', async (req: Request, res: Response) => {
-    const { streamId } = req.params;
+    const {streamId} = req.params;
     if (!await getState(streamId)) return res.status(404).send();
 
     res.setHeader('Content-Type', 'text/event-stream');
@@ -247,7 +254,7 @@ app.get('/streams', async (req: Request, res: Response) => {
         }
         res.json(summaries);
     } catch (err) {
-        res.status(500).json({ error: (err as Error).message });
+        res.status(500).json({error: (err as Error).message});
     }
 });
 
@@ -283,6 +290,7 @@ async function updateMetrics() {
 
 // Subscribe to Pub/Sub (using dedicated sub client)
 redisSub.pSubscribe('updates:*', (message: string, channel: string) => {
+    console.log(`Received Pub/Sub message for channel ${channel}:`, message);  // Add this
     const streamId = channel.split(':')[1];
     const state = JSON.parse(message);
     broadcastUpdate(streamId, state);
