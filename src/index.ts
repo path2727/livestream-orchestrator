@@ -47,23 +47,13 @@ interface ExtendedRequest extends Request {
     rawBody?: string;
 }
 
-// Raw body middleware for webhook debugging
-// Raw body middleware for webhook debugging
-app.use((req: ExtendedRequest, res: Response, next: NextFunction) => {
-    if (req.path === '/webhook') {
-        req.rawBody = '';
-        //req.setEncoding('utf8');
-        req.on('data', (chunk) => {
-            req.rawBody += chunk;
-        });
-        req.on('end', () => {
-            console.log('Webhook raw body (unparsed):', req.rawBody || 'empty');
-            next();
-        });
-    } else {
-        next();
+// Use body-parser with verify to capture raw body
+app.use(bodyParser.json({
+    verify: (req: ExtendedRequest, res: Response, buf: Buffer, encoding: string) => {
+        req.rawBody = buf.toString((encoding || 'utf8') as BufferEncoding);
+        console.log('Webhook raw body (unparsed):', req.rawBody || 'empty');
     }
-});
+}));
 
 app.use(bodyParser.json());
 app.use(express.static('public'));  // Serve static files (e.g., index.html, room.html)
@@ -179,13 +169,13 @@ app.get('/streams/:streamId/updates', async (req: Request, res: Response) => {
 
 // Webhook endpoint
 // https://test-orch.floro.co/webhook
-app.post('/webhook', async (req: Request, res: Response) => {
-    console.log('Webhook received1', req.body, req.headers.authorization);
+app.post('/webhook', async (req: ExtendedRequest, res: Response) => {
+    console.log('Webhook received', req.body, req.headers.authorization);
     let body: WebhookEvent;
     try {
-        body = await webhookReceiver.receive(req.body, req.headers.authorization);
+        body = await webhookReceiver.receive(req.rawBody, req.headers.authorization);
     } catch (err) {
-        console.error("error", err);
+        console.error("Webhook verification error:", err);
         return res.status(401).send();
     }
 
@@ -194,7 +184,7 @@ app.post('/webhook', async (req: Request, res: Response) => {
 
     if (!streamId) return res.status(400).send();
 
-    console.log('Webhook received2:', eventType, 'for room:', streamId);
+    console.log('Webhook received:', eventType, 'for room:', streamId);
 
     let state = await getState(streamId) || {
         streamId,
@@ -217,6 +207,7 @@ app.post('/webhook', async (req: Request, res: Response) => {
     await updateState(streamId, state);
     res.status(200).send();
 });
+
 
 // List active streams
 app.get('/streams', async (req: Request, res: Response) => {
