@@ -273,3 +273,18 @@ setInterval(async () => {
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
 });
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.path === '/webhook') {
+        let rawBody = '';
+        req.setEncoding('utf8');
+        req.on('data', (chunk) => { rawBody += chunk; });
+        req.on('end', () => {
+            console.log('Webhook raw body (unparsed):', rawBody || 'empty');
+            req.rawBody = rawBody;  // Attach for later if needed
+            next();
+        });
+    } else {
+        next();
+    }
+});
