@@ -173,7 +173,7 @@ app.post('/webhook', async (req: ExtendedRequest, res: Response) => {
     console.log('Webhook received', req.body, req.headers.authorization);
     let body: WebhookEvent;
     try {
-        body = await webhookReceiver.receive(req.rawBody, req.headers.authorization);
+        body = await webhookReceiver.receive(req.rawBody!, req.headers.authorization);
     } catch (err) {
         console.error("Webhook verification error:", err);
         return res.status(401).send();
