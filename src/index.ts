@@ -48,16 +48,16 @@ interface ExtendedRequest extends Request {
 }
 
 // Raw body middleware for webhook debugging
+// Raw body middleware for webhook debugging
 app.use((req: ExtendedRequest, res: Response, next: NextFunction) => {
     if (req.path === '/webhook') {
-        const chunks: Buffer[] = [];
-        req.on('data', (chunk: Buffer) => {
-            chunks.push(chunk);
+        req.rawBody = '';
+        req.setEncoding('utf8');
+        req.on('data', (chunk) => {
+            req.rawBody += chunk;
         });
         req.on('end', () => {
-            const rawBody = Buffer.concat(chunks).toString('utf8');
-            console.log('Webhook raw body (unparsed):', rawBody || 'empty');
-            req.rawBody = rawBody;
+            console.log('Webhook raw body (unparsed):', req.rawBody || 'empty');
             next();
         });
     } else {
