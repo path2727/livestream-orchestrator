@@ -136,6 +136,7 @@ app.post('/streams/:streamId/join', async (req: ExtendedRequest, res: Response) 
         const token = new AccessToken(apiKey, apiSecret, { identity: userId });
         token.addGrant({ roomJoin: true, room: streamId });
 
+        /*
         // Optimistically add user to state (if not already present)
         let state = await getState(streamId);
         if (state && !state.participants.includes(userId)) {
@@ -143,6 +144,8 @@ app.post('/streams/:streamId/join', async (req: ExtendedRequest, res: Response) 
             await updateState(streamId, { participants: state.participants });
             console.log(`Added user ${userId} to state for ${streamId} on join`);
         }
+
+         */
 
         res.json({ token: await token.toJwt() });
     } catch (err) {

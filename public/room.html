@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://unpkg.com/livekit-client@latest/dist/livekit-client.umd.min.js"></script>
     <title>Room View</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; }
@@ -131,6 +132,18 @@
             }
             successEl.textContent = `Joined successfully! Token: ${token.substring(0, 20)}... (copy full token for use: ${token})`;
             document.getElementById('userId').value = '';  // Clear input
+
+
+            // Connect to the room using LiveKit client SDK
+            const room = new Livekit.Room({
+                adaptiveStream: true,
+                dynacast: true
+            });
+
+
+            // Connect to the room
+            await room.connect('wss://test-0kg09b1m.livekit.cloud', token);
+
         } catch (err) {
             errorEl.textContent = err.message;
         }
