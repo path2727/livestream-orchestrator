@@ -158,6 +158,7 @@ app.get('/streams/:streamId/updates', async (req: Request, res: Response) => {
 // Webhook endpoint
 // https://test-orch.floro.co/webhook
 app.post('/webhook', async (req: Request, res: Response) => {
+    console.log('Webhook received', req.body, req.headers.authorization);
     let body: WebhookEvent;
     try {
         body = await webhookReceiver.receive(req.body, req.headers.authorization);
