@@ -17,8 +17,13 @@
     </style>
 </head>
 <body>
-<h1>Active Streams</h1>
 
+
+<h1>Active Streams</h1>
+<!-- List of existing rooms -->
+<ul id="streams"></ul>
+
+<h1>Add a New Room</h1>
 <!-- Form to add a new room -->
 <form id="add-room-form">
     <label for="room-name">New Room Name:</label>
@@ -26,9 +31,6 @@
     <button type="submit">Add Room</button>
 </form>
 <p id="add-error" class="error"></p>
-
-<!-- List of existing rooms -->
-<ul id="streams"></ul>
 
 <script>
     const apiUrl = 'https://test-orch.floro.co';  // Update to your deployed URL if needed
