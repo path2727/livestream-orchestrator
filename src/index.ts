@@ -191,10 +191,15 @@ app.get('/streams/:streamId/updates', async (req: Request, res: Response) => {
     let clients = sseClients.get(streamId) || [];
     clients.push(res);
     sseClients.set(streamId, clients);
+    console.log(`SSE client connected for ${streamId}. Total clients: ${clients.length}`);
+
+    // Send initial keep-alive to confirm connection
+    res.write(': connected\n\n');
 
     req.on('close', () => {
         clients = clients.filter(c => c !== res);
         sseClients.set(streamId, clients);
+        console.log(`SSE client disconnected for ${streamId}. Remaining: ${clients.length}`);
     });
 });
 
@@ -273,6 +278,7 @@ function broadcastUpdate(streamId: string, state: StreamState) {
     clients.forEach(client => {
         console.log("update client");
         client.write(`data: ${JSON.stringify(state)}\n\n`);
+        console.log("client updated");
     });
 }
 
