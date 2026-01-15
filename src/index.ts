@@ -20,11 +20,13 @@ const webhookReceiver = new WebhookReceiver(apiKey, apiSecret);
 
 // Main Redis client for commands (get/set/keys/publish)
 const redisCommands = createClient({url: process.env.REDIS_URL || 'redis://localhost:6379'});
-await redisCommands.connect().catch(err => console.error('redisCommands connect error:', err));
+await redisCommands.connect().catch(err =>
+    console.error('redisCommands connect error:', err));
 
 // Duplicate client for pub/sub (avoids mode conflicts)
 const redisSub = redisCommands.duplicate();
-await redisSub.connect().catch(err => console.error('redisSub connect error:', err);
+await redisSub.connect().catch(err =>
+    console.error('redisSub connect error:', err));
 
 interface StreamState {
     streamId: string;
