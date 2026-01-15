@@ -268,8 +268,10 @@ app.get('/metrics', async (req: Request, res: Response) => {
 
 // Broadcast to SSE
 function broadcastUpdate(streamId: string, state: StreamState) {
+    console.log("broadcastUpdate");
     const clients = sseClients.get(streamId) || [];
     clients.forEach(client => {
+        console.log("update client");
         client.write(`data: ${JSON.stringify(state)}\n\n`);
     });
 }
