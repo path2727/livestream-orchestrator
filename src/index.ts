@@ -69,11 +69,20 @@ async function getState(streamId: string): Promise<StreamState | null> {
 
 // Update state and publish
 async function updateState(streamId: string, updates: Partial<StreamState>) {
+    console.log("updateState");
     let state = await getState(streamId) || { streamId, status: 'active', participants: [], startedAt: new Date().toISOString() };
+
+    console.log("1");
     state = { ...state, ...updates };
+
+    console.log("2");
     await redisCommands.set(`state:${streamId}`, JSON.stringify(state));
+    console.log("3");
+
     await redisCommands.publish(`updates:${streamId}`, JSON.stringify(state));
+    console.log("4");
     updateMetrics();
+    console.log("5");
 }
 
 // Create stream
