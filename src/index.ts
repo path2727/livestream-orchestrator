@@ -1,10 +1,10 @@
-import express, {Request, Response} from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
-import {AccessToken, RoomServiceClient, WebhookEvent, WebhookReceiver} from 'livekit-server-sdk';
+import { RoomServiceClient, WebhookReceiver, AccessToken, WebhookEvent } from 'livekit-server-sdk';
 import Joi from 'joi';
 import client from 'prom-client';
-import {createClient} from 'redis';
+import { createClient } from 'redis';
 
 dotenv.config();
 
@@ -42,6 +42,26 @@ const activeStreams = new client.Gauge({name: 'active_streams', help: 'Number of
 const totalParticipants = new client.Gauge({name: 'total_participants', help: 'Total participants across streams'});
 register.registerMetric(activeStreams);
 register.registerMetric(totalParticipants);
+
+interface ExtendedRequest extends Request {
+    rawBody?: string;
+}
+
+// Raw body middleware for webhook debugging
+app.use((req: ExtendedRequest, res: Response, next: NextFunction) => {
+    if (req.path === '/webhook') {
+        let rawBody = '';
+        req.setEncoding('utf8');
+        req.on('data', (chunk) => { rawBody += chunk; });
+        req.on('end', () => {
+            console.log('Webhook raw body (unparsed):', rawBody || 'empty');
+            req.rawBody = rawBody;  // Attach for later if needed
+            next();
+        });
+    } else {
+        next();
+    }
+});
 
 app.use(bodyParser.json());
 app.use(express.static('public'));  // Serve static files (e.g., index.html, room.html)
@@ -274,17 +294,3 @@ app.listen(port, () => {
     console.log(`Server running on port ${port}`);
 });
 
-app.use((req: Request, res: Response, next: NextFunction) => {
-    if (req.path === '/webhook') {
-        let rawBody = '';
-        req.setEncoding('utf8');
-        req.on('data', (chunk) => { rawBody += chunk; });
-        req.on('end', () => {
-            console.log('Webhook raw body (unparsed):', rawBody || 'empty');
-            req.rawBody = rawBody;  // Attach for later if needed
-            next();
-        });
-    } else {
-        next();
-    }
-});
