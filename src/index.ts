@@ -43,6 +43,7 @@ const totalParticipants = new client.Gauge({name: 'total_participants', help: 'T
 register.registerMetric(activeStreams);
 register.registerMetric(totalParticipants);
 
+/*
 interface ExtendedRequest extends Request {
     rawBody?: string;
 }
@@ -54,6 +55,8 @@ app.use(bodyParser.json({
         console.log('Webhook raw body (unparsed):', req.rawBody || 'empty');
     }
 }));
+
+ */
 
 app.use(bodyParser.json());
 app.use(express.static('public'));  // Serve static files (e.g., index.html, room.html)
@@ -169,11 +172,11 @@ app.get('/streams/:streamId/updates', async (req: Request, res: Response) => {
 
 // Webhook endpoint
 // https://test-orch.floro.co/webhook
-app.post('/webhook', async (req: ExtendedRequest, res: Response) => {
-    console.log('Webhook received', req.rawBody!, req.headers.authorization);
+app.post('/webhook', async (req: Request, res: Response) => {
+    console.log('Webhook received', req.body, req.headers.authorization);
     let body: WebhookEvent;
     try {
-        body = await webhookReceiver.receive(req.rawBody!, req.headers.authorization);
+        body = await webhookReceiver.receive(req.body, req.headers.authorization);
     } catch (err) {
         console.error("Webhook verification error:", err);
         return res.status(401).send();
