@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.17.0/dist/livekit-client.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.16.1/dist/livekit-client.umd.min.js"></script>
     <title>Room View</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; }
@@ -135,7 +135,7 @@
 
 
             // Connect to the room using LiveKit client SDK
-            const room = new Livekit.Room({
+            const room = new LivekitClient.Room({
                 adaptiveStream: true,
                 dynacast: true
             });
