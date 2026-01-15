@@ -135,14 +135,22 @@
     }
 
     // SSE for real-time updates
-    const eventSource = new EventSource(`${apiUrl}/streams/${streamId}/updates`);
+    let eventSource = new EventSource(`${apiUrl}/streams/${streamId}/updates`);
+    eventSource.onopen = () => {
+        console.log('SSE connection opened for', streamId);
+    };
     eventSource.onmessage = (event) => {
-        console.log("event received: " + event.data);
+        console.log('SSE message received:', event.data);
         const state = JSON.parse(event.data);
         updateUI(state);
     };
     eventSource.onerror = (err) => {
         console.error('SSE error:', err);
+        // Optional: Reconnect logic if needed
+        setTimeout(() => {
+            console.log('SSE reconnecting...');
+            eventSource = new EventSource(`${apiUrl}/streams/${streamId}/updates`);  // Re-init
+        }, 5000);  // Retry after 5s
     };
 
     // Join form submission
