@@ -6,17 +6,59 @@
     <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.16.1/dist/livekit-client.umd.min.js"></script>
     <title>Room View</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        h1 { margin-bottom: 20px; }
-        p { margin-bottom: 10px; }
-        ul { list-style-type: none; padding: 0; }
-        li { margin-bottom: 5px; }
-        form { margin-bottom: 20px; }
-        input[type="text"] { padding: 8px; width: 200px; }
-        button { padding: 8px 16px; background-color: #007bff; color: white; border: none; cursor: pointer; }
-        button:hover { background-color: #0056b3; }
-        .error { color: red; }
-        .section { margin-bottom: 20px; border: 1px solid #ddd; padding: 10px; border-radius: 4px; }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+        }
+
+        p {
+            margin-bottom: 10px;
+        }
+
+        ul {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        li {
+            margin-bottom: 5px;
+        }
+
+        form {
+            margin-bottom: 20px;
+        }
+
+        input[type="text"] {
+            padding: 8px;
+            width: 200px;
+        }
+
+        button {
+            padding: 8px 16px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        .error {
+            color: red;
+        }
+
+        .section {
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
@@ -95,6 +137,7 @@
     // SSE for real-time updates
     const eventSource = new EventSource(`${apiUrl}/streams/${streamId}/updates`);
     eventSource.onmessage = (event) => {
+        console.log("event received: " + event.data);
         const state = JSON.parse(event.data);
         updateUI(state);
     };
@@ -119,14 +162,14 @@
         try {
             const res = await fetch(`${apiUrl}/streams/${streamId}/join`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId })
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({userId})
             });
             const data = await res.json();
             if (!res.ok) {
                 throw new Error(data.error || 'Failed to join');
             }
-            const { token } = data;
+            const {token} = data;
             if (!token) {
                 throw new Error('No token returned');
             }
@@ -157,7 +200,7 @@
         if (!confirm('Are you sure you want to stop this room?')) return;
 
         try {
-            const res = await fetch(`${apiUrl}/streams/${streamId}`, { method: 'DELETE' });
+            const res = await fetch(`${apiUrl}/streams/${streamId}`, {method: 'DELETE'});
             if (!res.ok && res.status !== 204) throw new Error('Failed to stop room');
             alert('Room stopped successfully');
             window.location.href = '/';  // Redirect to list
