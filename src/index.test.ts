@@ -67,7 +67,7 @@ describe('Stream API', () => {
             .post('/webhook')
             .set('Content-Type', 'application/json') // Explicitly set to match express.raw
             .set('Authorization', 'dummy') // Optional: In case your mock still checks it (harmless if not)
-            .send(JSON.stringify(joinEvent)); // Explicit stringify to guarantee valid JSON
+            .send(joinEvent); // Explicit stringify to guarantee valid JSON
 
         expect(webhookRes.status).toBe(200); // Confirms handler processed without error
 
