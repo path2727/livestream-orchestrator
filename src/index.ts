@@ -1,11 +1,20 @@
-import express, {NextFunction, Request, Response} from 'express';
+import express, { Request, Response } from 'express';
 import dotenv from 'dotenv';
-import {AccessToken, RoomServiceClient, WebhookEvent, WebhookReceiver} from 'livekit-server-sdk';
+import {
+    AccessToken,
+    RoomServiceClient,
+    WebhookEvent,
+    WebhookReceiver,
+} from 'livekit-server-sdk';
 import Joi from 'joi';
 import client from 'prom-client';
-import {createClient} from 'redis';
+import { createClient } from 'redis';
 
 dotenv.config();
+
+/* ------------------------------------------------------------------ */
+/* CONFIG */
+/* ------------------------------------------------------------------ */
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -13,20 +22,39 @@ const port = process.env.PORT || 3000;
 const livekitHost = process.env.LIVEKIT_HOST!;
 const apiKey = process.env.LIVEKIT_API_KEY!;
 const apiSecret = process.env.LIVEKIT_API_SECRET!;
-const webhookSecret = process.env.WEBHOOK_SECRET!;
+
+const STREAM_TTL_SECONDS = 5 * 60;
+const IDLE_TTL_SECONDS = 60;
+
+/* ------------------------------------------------------------------ */
+/* LIVEKIT */
+/* ------------------------------------------------------------------ */
 
 const roomService = new RoomServiceClient(livekitHost, apiKey, apiSecret);
 const webhookReceiver = new WebhookReceiver(apiKey, apiSecret);
 
-// Main Redis client for commands (get/set/keys/publish)
-const redisCommands = createClient({url: process.env.REDIS_URL || 'redis://localhost:6379'});
-await redisCommands.connect().catch(err =>
-    console.error('redisCommands connect error:', err));
+/* ------------------------------------------------------------------ */
+/* REDIS */
+/* ------------------------------------------------------------------ */
 
-// Duplicate client for pub/sub (avoids mode conflicts)
-const redisSub = redisCommands.duplicate();
-await redisSub.connect().catch(err =>
-    console.error('redisSub connect error:', err));
+const redis = createClient({
+    url: process.env.REDIS_URL || 'redis://localhost:6379',
+});
+await redis.connect();
+
+const redisSub = redis.duplicate();
+await redisSub.connect();
+
+/* ------------------------------------------------------------------ */
+/* EXPRESS */
+/* ------------------------------------------------------------------ */
+
+app.use(express.json());
+app.use(express.static('public'));
+
+/* ------------------------------------------------------------------ */
+/* TYPES */
+/* ------------------------------------------------------------------ */
 
 interface StreamState {
     streamId: string;
@@ -35,292 +63,296 @@ interface StreamState {
     startedAt: string;
 }
 
-const sseClients = new Map<string, Response[]>();
+/* ------------------------------------------------------------------ */
+/* VALIDATION */
+/* ------------------------------------------------------------------ */
+
+const createStreamSchema = Joi.object({
+    name: Joi.string().required(),
+});
+
+const joinStreamSchema = Joi.object({
+    userId: Joi.string().required(),
+});
+
+/* ------------------------------------------------------------------ */
+/* METRICS */
+/* ------------------------------------------------------------------ */
 
 const register = new client.Registry();
-const activeStreams = new client.Gauge({name: 'active_streams', help: 'Number of active streams'});
-const totalParticipants = new client.Gauge({name: 'total_participants', help: 'Total participants across streams'});
+
+const activeStreams = new client.Gauge({
+    name: 'active_streams',
+    help: 'Number of active streams',
+});
+
+const totalParticipants = new client.Gauge({
+    name: 'total_participants',
+    help: 'Total participants across streams',
+});
+
 register.registerMetric(activeStreams);
 register.registerMetric(totalParticipants);
 
-// Extend Request interface for custom properties
-interface ExtendedRequest extends Request {
-    rawBody?: string;
-}
+/* ------------------------------------------------------------------ */
+/* REDIS HELPERS */
+/* ------------------------------------------------------------------ */
 
-// Raw body middleware (captures raw for all POSTs)
-app.use((req: ExtendedRequest, res: Response, next: NextFunction) => {
-    req.rawBody = '';
-    req.setEncoding('utf8');
-    req.on('data', (chunk) => {
-        req.rawBody += chunk;
-    });
-    req.on('end', () => {
-        next();
-    });
-});
-
-app.use(express.static('public'));  // Serve static files (e.g., index.html, room.html)
-
-const createStreamSchema = Joi.object({name: Joi.string().required()});
-const joinStreamSchema = Joi.object({userId: Joi.string().required()});
-
-// Get state from Redis
 async function getState(streamId: string): Promise<StreamState | null> {
-    const data = await redisCommands.get(`state:${streamId}`);
-    return data ? JSON.parse(data) : null;
-}
+    const meta = await redis.hGetAll(`stream:${streamId}`);
+    if (!meta.status) return null;
 
-// Update state and publish
-async function updateState(streamId: string, updates: Partial<StreamState>) {
-    console.log("updateState");
-    let state = await getState(streamId) || {
+    const participants = await redis.sMembers(
+        `stream:${streamId}:participants`,
+    );
+
+    return {
         streamId,
-        status: 'active',
-        participants: [],
-        startedAt: new Date().toISOString()
+        status: meta.status as 'active' | 'finished',
+        participants,
+        startedAt: meta.started_at,
     };
-
-    console.log("1");
-    state = {...state, ...updates};
-
-    console.log("2");
-    await redisCommands.set(`state:${streamId}`, JSON.stringify(state));
-    console.log("3");
-
-    await redisCommands.publish(`updates:${streamId}`, JSON.stringify(state));
-    console.log(`Published update for ${streamId}:`, JSON.stringify(state));
-    updateMetrics();
-    console.log("5");
 }
 
-// Create stream
-app.post('/streams', async (req: ExtendedRequest, res: Response) => {
-    let bodyData;
-    try {
-        bodyData = JSON.parse(req.rawBody || '{}');
-    } catch (err) {
-        return res.status(400).json({error: 'Invalid JSON body'});
-    }
+async function publishState(streamId: string) {
+    const state = await getState(streamId);
+    if (!state) return;
 
-    const {error, value} = createStreamSchema.validate(bodyData);
-    if (error) return res.status(400).json({error: error.details[0].message});
+    await redis.publish(`updates:${streamId}`, JSON.stringify(state));
+    await updateMetrics();
+}
+
+/* ------------------------------------------------------------------ */
+/* STREAM API */
+/* ------------------------------------------------------------------ */
+
+app.post('/streams', async (req, res) => {
+    const { error, value } = createStreamSchema.validate(req.body);
+    if (error) return res.status(400).json({ error: error.message });
 
     const streamId = value.name;
-    try {
-        const existingRooms = await roomService.listRooms([streamId]);
-        if (existingRooms.length > 0) {
-            return res.status(200).json({streamId});
-        }
 
-        await roomService.createRoom({name: streamId, emptyTimeout: 300});
-        await updateState(streamId, {status: 'active', participants: [], startedAt: new Date().toISOString()});
-        res.status(201).json({streamId});
-    } catch (err) {
-        res.status(500).json({error: (err as Error).message});
+    const existing = await roomService.listRooms([streamId]);
+    if (existing.length > 0) {
+        return res.json({ streamId });
     }
+
+    await roomService.createRoom({
+        name: streamId,
+        emptyTimeout: 300,
+    });
+
+    await redis.hSet(`stream:${streamId}`, {
+        status: 'active',
+        started_at: new Date().toISOString(),
+    });
+
+    await redis.persist(`stream:${streamId}`);
+    await redis.persist(`stream:${streamId}:participants`);
+
+    await publishState(streamId);
+    res.status(201).json({ streamId });
 });
 
-// Stop stream
-app.delete('/streams/:streamId', async (req: Request, res: Response) => {
-    const {streamId} = req.params;
+app.delete('/streams/:streamId', async (req, res) => {
+    const { streamId } = req.params;
+
     try {
         await roomService.deleteRoom(streamId);
-        await updateState(streamId, {status: 'finished'});
-        res.status(204).send();
-    } catch (err) {
-        if ((err as any).message.includes('room not found')) {
-            return res.status(204).send();
-        }
-        res.status(500).json({error: (err as Error).message});
-    }
+    } catch {}
+
+    await redis.hSet(`stream:${streamId}`, {
+        status: 'finished',
+        ended_at: new Date().toISOString(),
+    });
+
+    await redis.expire(`stream:${streamId}`, STREAM_TTL_SECONDS);
+    await redis.expire(`stream:${streamId}:participants`, STREAM_TTL_SECONDS);
+
+    await publishState(streamId);
+    res.status(204).send();
 });
 
-// Join stream
-app.post('/streams/:streamId/join', async (req: ExtendedRequest, res: Response) => {
-    let bodyData;
-    try {
-        bodyData = JSON.parse(req.rawBody || '{}');
-    } catch (err) {
-        return res.status(400).json({error: 'Invalid JSON body'});
-    }
+app.post('/streams/:streamId/join', async (req, res) => {
+    const { error, value } = joinStreamSchema.validate(req.body);
+    if (error) return res.status(400).json({ error: error.message });
 
-    const {streamId} = req.params;
-    const {error, value} = joinStreamSchema.validate(bodyData);
-    if (error) return res.status(400).json({error: error.details[0].message});
+    const { streamId } = req.params;
+    const { userId } = value;
 
-    const userId = value.userId;
-    try {
-        const token = new AccessToken(apiKey, apiSecret, {identity: userId});
-        token.addGrant({roomJoin: true, room: streamId});
+    const token = new AccessToken(apiKey, apiSecret, { identity: userId });
+    token.addGrant({ roomJoin: true, room: streamId });
 
-        /*
-        // Optimistically add user to state (if not already present)
-        let state = await getState(streamId);
-        if (state && !state.participants.includes(userId)) {
-            state.participants.push(userId);
-            await updateState(streamId, { participants: state.participants });
-            console.log(`Added user ${userId} to state for ${streamId} on join`);
-        }
-
-         */
-
-        res.json({token: await token.toJwt()});
-    } catch (err) {
-        res.status(500).json({error: (err as Error).message});
-    }
+    res.json({ token: await token.toJwt() });
 });
 
-// Get stream state
-app.get('/streams/:streamId/state', async (req: Request, res: Response) => {
-    const {streamId} = req.params;
-    const state = await getState(streamId);
-    if (!state) return res.status(404).json({error: 'Stream not found'});
+app.get('/streams/:streamId/state', async (req, res) => {
+    const state = await getState(req.params.streamId);
+    if (!state) return res.status(404).send();
     res.json(state);
 });
 
-// SSE for updates
-app.get('/sse/:streamId/updates', async (req: Request, res: Response) => {
-    const {streamId} = req.params;
-    if (!await getState(streamId)) return res.status(404).send();
+/* ------------------------------------------------------------------ */
+/* SSE */
+/* ------------------------------------------------------------------ */
+
+const sseClients = new Map<string, Response[]>();
+
+app.get('/sse/:streamId/updates', async (req, res) => {
+    const { streamId } = req.params;
+    if (!(await getState(streamId))) return res.status(404).send();
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('X-Accel-Buffering', 'no'); // nginx
+    res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders?.();
 
-    let clients = sseClients.get(streamId) || [];
+    const clients = sseClients.get(streamId) || [];
     clients.push(res);
     sseClients.set(streamId, clients);
-    console.log(`SSE client connected for ${streamId}. Total clients: ${clients.length}`);
 
-    // Send initial keep-alive to confirm connection
     res.write(': connected\n\n');
 
     req.on('close', () => {
-        clients = clients.filter(c => c !== res);
-        sseClients.set(streamId, clients);
-        console.log(`SSE client disconnected for ${streamId}. Remaining: ${clients.length}`);
+        sseClients.set(
+            streamId,
+            (sseClients.get(streamId) || []).filter(c => c !== res),
+        );
     });
 });
 
-// Webhook endpoint
-app.post('/webhook', async (req: ExtendedRequest, res: Response) => {
-    console.log('Webhook received', req.rawBody, req.headers.authorization);
-    let body: WebhookEvent;
-    try {
-        body = await webhookReceiver.receive(req.rawBody || '', req.headers.authorization);
-    } catch (err) {
-        console.error("Webhook verification error:", err);
-        return res.status(401).send();
+function broadcast(streamId: string, state: StreamState) {
+    for (const res of sseClients.get(streamId) || []) {
+        res.write(`data: ${JSON.stringify(state)}\n\n`);
     }
+}
 
-    const eventType = body.event;
-    const streamId = body.room?.name;
-
-    if (!streamId) return res.status(400).send();
-
-    console.log('Webhook received:', eventType, 'for room:', streamId);
-
-    let state = await getState(streamId) || {
-        streamId,
-        status: 'active',
-        participants: [],
-        startedAt: new Date().toISOString()
-    };
-
-    if (eventType === 'participant_joined' && body.participant) {
-        state.participants.push(body.participant.identity);
-    } else if (eventType === 'participant_left' && body.participant) {
-        const participant = body.participant;
-        state.participants = state.participants.filter(p => p !== participant.identity);
-    } else if (eventType === 'room_finished') {
-        state.status = 'finished';
-    } else {
-        console.warn('Unhandled webhook event:', eventType);
-    }
-
-    await updateState(streamId, state);
-    res.status(200).send();
+redisSub.pSubscribe('updates:*', (message, channel) => {
+    const streamId = channel.split(':')[1];
+    broadcast(streamId, JSON.parse(message));
 });
 
-// List active streams
-app.get('/streams', async (req: Request, res: Response) => {
-    try {
-        const keys = await redisCommands.keys('state:*');
-        const summaries = [];
-        for (const key of keys) {
-            const state = await getState(key.split(':')[1]);
-            if (state && state.status === 'active') {
-                summaries.push({
-                    streamId: state.streamId,
-                    status: state.status,
-                    participantCount: state.participants.length,
-                    startedAt: state.startedAt,
-                });
+/* ------------------------------------------------------------------ */
+/* WEBHOOK (RAW BODY ONLY HERE) */
+/* ------------------------------------------------------------------ */
+
+app.post(
+    '/webhook',
+    express.raw({ type: '*/*' }),
+    async (req: Request, res: Response) => {
+        let event: WebhookEvent;
+
+        try {
+            const body = req.body.toString('utf8');
+            event = await webhookReceiver.receive(
+                body,
+                req.headers.authorization,
+            );
+        } catch {
+            return res.status(401).send();
+        }
+
+        const streamId = event.room?.name;
+        if (!streamId) return res.send();
+
+        if (event.event === 'participant_joined' && event.participant) {
+            await redis.sAdd(
+                `stream:${streamId}:participants`,
+                event.participant.identity,
+            );
+
+            await redis.persist(`stream:${streamId}`);
+            await redis.persist(`stream:${streamId}:participants`);
+        }
+
+        if (event.event === 'participant_left' && event.participant) {
+            await redis.sRem(
+                `stream:${streamId}:participants`,
+                event.participant.identity,
+            );
+
+            const remaining = await redis.sCard(
+                `stream:${streamId}:participants`,
+            );
+
+            if (remaining === 0) {
+                await redis.expire(`stream:${streamId}`, IDLE_TTL_SECONDS);
+                await redis.expire(
+                    `stream:${streamId}:participants`,
+                    IDLE_TTL_SECONDS,
+                );
             }
         }
-        res.json(summaries);
-    } catch (err) {
-        res.status(500).json({error: (err as Error).message});
+
+        if (event.event === 'room_finished') {
+            await redis.hSet(`stream:${streamId}`, {
+                status: 'finished',
+            });
+
+            await redis.expire(`stream:${streamId}`, STREAM_TTL_SECONDS);
+            await redis.expire(
+                `stream:${streamId}:participants`,
+                STREAM_TTL_SECONDS,
+            );
+        }
+
+        await publishState(streamId);
+        res.send();
+    },
+);
+
+/* ------------------------------------------------------------------ */
+/* LIST STREAMS */
+/* ------------------------------------------------------------------ */
+
+app.get('/streams', async (_req, res) => {
+    const keys = await redis.keys('stream:*');
+    const streams = [];
+
+    for (const key of keys) {
+        const streamId = key.replace('stream:', '');
+        const state = await getState(streamId);
+        if (state?.status === 'active') {
+            streams.push({
+                streamId,
+                participantCount: state.participants.length,
+                startedAt: state.startedAt,
+            });
+        }
     }
+
+    res.json(streams);
 });
 
-// Metrics
-app.get('/metrics', async (req: Request, res: Response) => {
+/* ------------------------------------------------------------------ */
+/* METRICS */
+/* ------------------------------------------------------------------ */
+
+async function updateMetrics() {
+    let active = 0;
+    let participants = 0;
+
+    for (const key of await redis.keys('stream:*')) {
+        const state = await getState(key.replace('stream:', ''));
+        if (state?.status === 'active') {
+            active++;
+            participants += state.participants.length;
+        }
+    }
+
+    activeStreams.set(active);
+    totalParticipants.set(participants);
+}
+
+app.get('/metrics', async (_req, res) => {
     res.setHeader('Content-Type', register.contentType);
     res.end(await register.metrics());
 });
 
-// Broadcast to SSE
-function broadcastUpdate(streamId: string, state: StreamState) {
-    console.log("broadcastUpdate");
-    const clients = sseClients.get(streamId) || [];
-    clients.forEach(client => {
-        console.log("update client");
-        client.write(`data: ${JSON.stringify(state)}\n\n`);
-        console.log("client updated");
-    });
-}
-
-// Update metrics from Redis
-async function updateMetrics() {
-    let activeCount = 0;
-    let participantCount = 0;
-    const keys = await redisCommands.keys('state:*');
-    for (const key of keys) {
-        const state = await getState(key.split(':')[1]);
-        if (state?.status === 'active') {
-            activeCount++;
-            participantCount += state.participants.length;
-        }
-    }
-    activeStreams.set(activeCount);
-    totalParticipants.set(participantCount);
-}
-
-// Subscribe to Pub/Sub (using dedicated sub client)
-redisSub.pSubscribe('updates:*', (message: string, channel: string) => {
-    console.log(`Received Pub/Sub message for channel ${channel}:`, message);  // Add this
-    const streamId = channel.split(':')[1];
-    const state = JSON.parse(message);
-    broadcastUpdate(streamId, state);
-});
-
-// Cleanup job
-setInterval(async () => {
-    const keys = await redisCommands.keys('state:*');
-    for (const key of keys) {
-        const state = await getState(key.split(':')[1]);
-        if (state?.status === 'finished') {
-            await redisCommands.del(key);
-            sseClients.delete(state.streamId);
-        }
-    }
-    updateMetrics();
-}, 5 * 60 * 1000);
+/* ------------------------------------------------------------------ */
+/* START */
+/* ------------------------------------------------------------------ */
 
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
