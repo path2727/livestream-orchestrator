@@ -34,6 +34,9 @@ Client: index.html (list/add rooms), room.html (view/join/leave/stop).
 - Idempotency: Check existing rooms on create/delete.
 - Scaling: Pub/Sub for multi-instance broadcasts.
 
+## Tests
+Run npm test to execute the Jest tests for key endpoints like creating streams and listing active rooms. This verifies basic functionality without external dependencies (mocks LiveKit calls for speed).
+
 ## .env.example
 ```properties
 LIVEKIT_HOST=https://your-project.livekit.cloud
