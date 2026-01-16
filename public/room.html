@@ -135,7 +135,7 @@
     }
 
     // SSE for real-time updates
-    let eventSource = new EventSource(`${apiUrl}/streams/${streamId}/updates`);
+    let eventSource = new EventSource(`${apiUrl}/sse/${streamId}/updates`);
     eventSource.onopen = () => {
         console.log('SSE connection opened for', streamId);
     };
