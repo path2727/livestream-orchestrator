@@ -1,3 +1,4 @@
+// test/mocks/redis-mock.ts
 import { EventEmitter } from 'events';
 
 type RedisValue = string | number | Buffer | null;
@@ -10,10 +11,10 @@ interface MockEntry {
 }
 
 class MockRedis extends EventEmitter {
-    private store = new Map<string, MockEntry>();
-    private subscribers = new Map<string, Set<(message: string, channel: string) => void>>();
+    private store: Map<string, MockEntry> = new Map(); // Made non-private for sharing
+    private subscribers: Map<string, Set<(message: string, channel: string) => void>> = new Map(); // Made non-private for sharing
 
-    // Connect (no-op, but fulfills the promise)
+    // Connect (no-op)
     async connect() {
         return Promise.resolve();
     }
@@ -22,6 +23,14 @@ class MockRedis extends EventEmitter {
     async quit() {
         this.store.clear();
         this.subscribers.clear();
+    }
+
+    // Duplicate: New client sharing the same store/subscribers
+    duplicate() {
+        const dup = new MockRedis();
+        dup.store = this.store;
+        dup.subscribers = this.subscribers;
+        return dup;
     }
 
     // Keys (list keys matching pattern, e.g., 'stream:meta:*')
@@ -33,8 +42,8 @@ class MockRedis extends EventEmitter {
     // Hashes
     async hSet(key: string, fieldValues: Record<string, RedisValue>) {
         let entry = this.store.get(key) || { value: {} as RedisHash };
-        if (!(entry.value instanceof Map)) {
-            entry.value = {} as RedisHash; // Ensure it's a hash
+        if (!(entry.value instanceof Object && !Array.isArray(entry.value) && !(entry.value instanceof Set))) {
+            entry.value = {} as RedisHash;
         }
         Object.assign(entry.value, fieldValues);
         this.store.set(key, entry);
@@ -99,30 +108,32 @@ class MockRedis extends EventEmitter {
     }
 
     async ttl(key: string): Promise<number> {
+        // Simplified: Return approximate remaining seconds if TTL set
+        // For precise, you'd need to track start time, but this is fine for tests
         const entry = this.store.get(key);
-        if (!entry) return -2;
-        if (entry.ttl) return 60; // Rough approximation; for tests, you can hardcode
-        return -1; // Persistent
+        if (!entry) return -2; // Key doesn't exist
+        if (!entry.ttl) return -1; // Persistent
+        return 60; // Arbitrary positive for "has TTL"
     }
 
     // Delete
     async del(key: string) {
+        const entry = this.store.get(key);
+        if (entry?.ttl) clearTimeout(entry.ttl);
         this.store.delete(key);
     }
 
     // Pub/Sub
     async publish(channel: string, message: string) {
-        const subs = this.subscribers.get(channel);
-        if (subs) {
-            for (const cb of subs) {
-                cb(message, channel);
-            }
+        const subs = this.subscribers.get(channel) || new Set();
+        for (const cb of subs) {
+            cb(message, channel);
         }
     }
 
     pSubscribe(pattern: string, callback: (message: string, channel: string) => void) {
-        // Simple: treat pattern as exact channel for your app (updates:*)
-        const channel = pattern; // In your app it's 'updates:*'
+        // Simplified for your 'updates:*' usage (treat as exact match)
+        const channel = pattern;
         if (!this.subscribers.has(channel)) {
             this.subscribers.set(channel, new Set());
         }
@@ -133,13 +144,9 @@ class MockRedis extends EventEmitter {
     reset() {
         this.store.clear();
         this.subscribers.clear();
-        // Clear any pending timeouts if needed
-    }
-
-    duplicate() {
-        return new MockRedis();
+        // No need to clear timeouts; they'll reference cleared store
     }
 }
 
-// Export a singleton for easy use
+// Export singleton
 export const mockRedis = new MockRedis();
