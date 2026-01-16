@@ -295,7 +295,6 @@ app.post(
                 event: event.event,
                 room: event.room?.name,
                 participant: event.participant?.identity,
-                reason: event.participant?.disconnectedReason,   // ← very useful!
                 timestamp: new Date().toISOString()
             });
         } catch {
