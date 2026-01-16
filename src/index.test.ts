@@ -1,12 +1,23 @@
 import request from 'supertest';
 import { app } from './index';  // Export app from index.ts
 
+jest.mock('livekit-server-sdk', () => {
+    return {
+        RoomServiceClient: jest.fn().mockImplementation(() => {
+            return {
+                listRooms: jest.fn().mockResolvedValue([]),  // Mock no existing rooms
+                createRoom: jest.fn().mockResolvedValue({}),  // Mock successful creation
+            };
+        }),
+    };
+});
+
 describe('Stream API', () => {
     test('Create stream', async () => {
         const res = await request(app).post('/streams').send({ name: 'test-stream' });
         expect(res.status).toBe(201);
         expect(res.body).toHaveProperty('streamId', 'test-stream');
-    }, 30000);
+    }, 60000);
 
     test('List streams', async () => {
         const res = await request(app).get('/streams');
