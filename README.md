@@ -40,3 +40,30 @@ LIVEKIT_API_KEY=your_api_key
 LIVEKIT_API_SECRET=your_api_secret
 PORT=3000
 REDIS_URL=redis://myusername:mypassword@my-redis-host.example.com:6379
+
+## nginx setup for sse
+
+    location /sse/ {
+        proxy_pass http://<<your ip/host>>:3000;
+
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+
+        proxy_buffering off;
+        proxy_cache off;
+        gzip off;
+
+        # Prevent nginx buffering
+        add_header X-Accel-Buffering no;
+
+        # Long-lived connection
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+
+        chunked_transfer_encoding on;
+    }
