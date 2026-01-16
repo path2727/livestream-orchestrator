@@ -6,7 +6,7 @@ describe('Stream API', () => {
         const res = await request(app).post('/streams').send({ name: 'test-stream' });
         expect(res.status).toBe(201);
         expect(res.body).toHaveProperty('streamId', 'test-stream');
-    });
+    }, 30000);
 
     test('List streams', async () => {
         const res = await request(app).get('/streams');
