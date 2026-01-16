@@ -41,7 +41,7 @@ LIVEKIT_API_KEY=your_api_key
 LIVEKIT_API_SECRET=your_api_secret
 PORT=3000
 REDIS_URL=redis://myusername:mypassword@my-redis-host.example.com:6379
-
+```
 ## nginx setup for sse
 
 ```bash
@@ -69,3 +69,4 @@ REDIS_URL=redis://myusername:mypassword@my-redis-host.example.com:6379
 
         chunked_transfer_encoding on;
     }
+```
