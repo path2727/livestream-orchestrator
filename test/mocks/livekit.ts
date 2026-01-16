@@ -54,4 +54,13 @@ export const mockLiveKit = {
             room: { name: room },
         } as WebhookEvent;
     },
+
+    // Simple validation: Just parse, no auth throw (for reliable tests)
+    validateWebhook(body: string): WebhookEvent {
+        try {
+            return JSON.parse(body) as WebhookEvent;
+        } catch (err) {
+            throw new Error('Invalid webhook body');
+        }
+    },
 };
