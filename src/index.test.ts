@@ -5,6 +5,7 @@ import { mockLiveKit } from '../test/mocks/livekit';
 import { mockRedis } from '../test/mocks/redis';
 
 jest.mock('redis', () => {
+    const { mockRedis } = require('../test/mocks/redis');
     return {
         createClient: jest.fn().mockImplementation(() => mockRedis),
     };
