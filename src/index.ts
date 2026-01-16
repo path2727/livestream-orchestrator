@@ -16,7 +16,7 @@ dotenv.config();
 /* CONFIG */
 /* ------------------------------------------------------------------ */
 
-const app = express();
+export const app = express();
 const port = Number(process.env.PORT || 3000);
 
 const livekitHost = process.env.LIVEKIT_HOST!;
