@@ -21,6 +21,7 @@ jest.mock('livekit-server-sdk', () => {
         })),
         WebhookReceiver: jest.fn().mockImplementation(() => ({
             receive: jest.fn(async (body: string, _auth: string | undefined) => { // Ignore auth
+                console.log("body: " + body);
                 return mockLiveKit.validateWebhook(body);
             }),
         })),
