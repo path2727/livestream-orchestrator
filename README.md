@@ -35,6 +35,7 @@ Client: index.html (list/add rooms), room.html (view/join/leave/stop).
 - Scaling: Pub/Sub for multi-instance broadcasts.
 
 ## .env.example
+```properties
 LIVEKIT_HOST=https://your-project.livekit.cloud
 LIVEKIT_API_KEY=your_api_key
 LIVEKIT_API_SECRET=your_api_secret
@@ -43,6 +44,7 @@ REDIS_URL=redis://myusername:mypassword@my-redis-host.example.com:6379
 
 ## nginx setup for sse
 
+```bash
     location /sse/ {
         proxy_pass http://<<your ip/host>>:3000;
 
