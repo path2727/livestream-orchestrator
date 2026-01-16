@@ -1,5 +1,6 @@
 import request from 'supertest';
-import { app } from './index';  // Export app from index.ts
+import { app } from './index';
+import {WebhookEvent} from "livekit-server-sdk";  // Export app from index.ts
 
 jest.mock('livekit-server-sdk', () => {
     return {
@@ -7,6 +8,15 @@ jest.mock('livekit-server-sdk', () => {
             return {
                 listRooms: jest.fn().mockResolvedValue([]),  // Mock no existing rooms
                 createRoom: jest.fn().mockResolvedValue({}),  // Mock successful creation
+            };
+        }),
+        WebhookReceiver: jest.fn().mockImplementation(() => {
+            return {
+                receive: jest.fn().mockImplementation(async (body: string, auth: string | undefined) => {
+                    // Mock successful verification and return a parsed event
+                    const mockEvent: WebhookEvent = JSON.parse(body);  // Simulate parsing
+                    return mockEvent;
+                }),
             };
         }),
     };
