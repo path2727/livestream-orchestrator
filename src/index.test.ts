@@ -108,7 +108,7 @@ describe('Stream API', () => {
         expect(ttl).toBeGreaterThan(0); // Confirms expiration set
     });
 
-    test('Publish triggers sub callback', async () => {
+    test('Publish triggers sub callback', async () =>    {
         const callback = jest.fn();
         await mockRedis.pSubscribe('updates:test-room', callback);
 
@@ -120,7 +120,5 @@ describe('Stream API', () => {
 
 
 afterAll(async () => {
-    //await redis.quit();
-    //await redisSub.quit();
     await mockRedis.quit();
 });
