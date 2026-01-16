@@ -65,7 +65,9 @@ describe('Stream API', () => {
 
         const webhookRes = await request(app)
             .post('/webhook')
-            .send(joinEvent); // Supertest will JSON.stringify the object
+            .set('Content-Type', 'application/json') // Explicitly set to match express.raw
+            .set('Authorization', 'dummy') // Optional: In case your mock still checks it (harmless if not)
+            .send(JSON.stringify(joinEvent)); // Explicit stringify to guarantee valid JSON
 
         expect(webhookRes.status).toBe(200); // Confirms handler processed without error
 
