@@ -64,9 +64,12 @@ describe('Stream API', () => {
 
         const joinEvent = mockLiveKit.participantJoin('test-room', 'user1');
 
+        const joinStr = JSON.stringify(joinEvent);
+        console.log("joinEvent: " + joinStr);
+
         const webhookRes = await request(app)
             .post('/webhook')
-            .send(joinEvent);
+            .send(joinStr);
 
         expect(webhookRes.status).toBe(200); // Confirms handler processed without error
 
