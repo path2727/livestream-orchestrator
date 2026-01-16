@@ -135,6 +135,10 @@ class MockRedis extends EventEmitter {
         this.subscribers.clear();
         // Clear any pending timeouts if needed
     }
+
+    duplicate() {
+        return new MockRedis();
+    }
 }
 
 // Export a singleton for easy use
