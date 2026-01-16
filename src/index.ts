@@ -45,22 +45,11 @@ export const redis = createClient({
 export const redisSub = redis.duplicate();
 
 async function initRedis() {
-    await redis.connect().catch(err => console.error('redisCommands connect error:', err));
-    await redisSub.connect().catch(err => console.error('redisSub connect error:', err));
+    await redis.connect().catch(err => console.error('redis connect error: ' + err));
+    await redisSub.connect().catch(err => console.error('redisSub connect error: ' + err));
 }
 
 initRedis().catch(console.error);
-
-/*
-const redis = createClient({
-    url: process.env.REDIS_URL || 'redis://localhost:6379',
-});
-await redis.connect();
-
-const redisSub = redis.duplicate();
-await redisSub.connect();
-
- */
 
 /* ------------------------------------------------------------------ */
 /* EXPRESS */
@@ -117,13 +106,11 @@ register.registerMetric(totalParticipants);
 /* ------------------------------------------------------------------ */
 
 async function getState(streamId: string): Promise<StreamState | null> {
-    console.log("getState: " + streamId );
-    const meta = await redis.hGetAll(`stream:meta:${streamId}`);
+    console.log('getState for stream: ' + streamId);
+    const meta = await redis.hGetAll('stream:meta:' + streamId);
     if (!meta.status) return null;
 
-    const participants = await redis.sMembers(
-        `stream:participants:${streamId}`,
-    );
+    const participants = await redis.sMembers('stream:participants:' + streamId);
 
     return {
         streamId,
@@ -135,11 +122,11 @@ async function getState(streamId: string): Promise<StreamState | null> {
 }
 
 async function publishState(streamId: string) {
-    console.log("publishState: " + streamId );
+    console.log('publishState for stream: ' + streamId);
     const state = await getState(streamId);
     if (!state) return;
 
-    await redis.publish(`updates:${streamId}`, JSON.stringify(state));
+    await redis.publish('updates:' + streamId, JSON.stringify(state));
     await updateMetrics();
 }
 
@@ -152,7 +139,7 @@ app.post('/streams', async (req, res) => {
     if (error) return res.status(400).json({ error: error.message });
 
     const streamId = value.name;
-    console.log("POST /streams/" + streamId );
+    console.log('POST /streams - creating/checking: ' + streamId);
 
     const existing = await roomService.listRooms([streamId]);
     if (existing.length > 0) {
@@ -164,14 +151,13 @@ app.post('/streams', async (req, res) => {
         emptyTimeout: 300,
     });
 
-    await redis.hSet(`stream:meta:${streamId}`, {
+    await redis.hSet('stream:meta:' + streamId, {
         status: 'active',
         started_at: new Date().toISOString(),
     });
 
-    // ensure no TTL
-    await redis.persist(`stream:meta:${streamId}`);
-    await redis.persist(`stream:participants:${streamId}`);
+    await redis.persist('stream:meta:' + streamId);
+    await redis.persist('stream:participants:' + streamId);
 
     await publishState(streamId);
     res.status(201).json({ streamId });
@@ -179,22 +165,21 @@ app.post('/streams', async (req, res) => {
 
 app.delete('/streams/:streamId', async (req, res) => {
     const { streamId } = req.params;
+    console.log('DELETE /streams/' + streamId);
 
-    console.log("DELETE /streams/" + streamId );
     try {
         await roomService.deleteRoom(streamId);
-    } catch {}
+    } catch {
+        // silent fail - room may already be gone
+    }
 
-    await redis.hSet(`stream:meta:${streamId}`, {
+    await redis.hSet('stream:meta:' + streamId, {
         status: 'finished',
         ended_at: new Date().toISOString(),
     });
 
-    await redis.expire(`stream:meta:${streamId}`, STREAM_TTL_SECONDS);
-    await redis.expire(
-        `stream:participants:${streamId}`,
-        STREAM_TTL_SECONDS,
-    );
+    await redis.expire('stream:meta:' + streamId, STREAM_TTL_SECONDS);
+    await redis.expire('stream:participants:' + streamId, STREAM_TTL_SECONDS);
 
     await publishState(streamId);
     res.status(204).send();
@@ -207,8 +192,8 @@ app.post('/streams/:streamId/join', async (req, res) => {
     const { streamId } = req.params;
     const { userId } = value;
 
-    console.log("/streams/" + streamId + "/join");
-    console.log("userId: " + userId );
+    console.log('POST /streams/' + streamId + '/join - user: ' + userId);
+
     const token = new AccessToken(apiKey, apiSecret, {
         identity: userId,
     });
@@ -222,9 +207,9 @@ app.post('/streams/:streamId/join', async (req, res) => {
 });
 
 app.get('/streams/:streamId/state', async (req, res) => {
-
     const { streamId } = req.params;
-    console.log("/streams/" + streamId + "/state");
+    console.log('GET /streams/' + streamId + '/state');
+
     const state = await getState(streamId);
     if (!state) return res.status(404).send();
     res.json(state);
@@ -238,7 +223,8 @@ const sseClients = new Map<string, Response[]>();
 
 app.get('/sse/:streamId/updates', async (req, res) => {
     const { streamId } = req.params;
-    console.log("/sse/" + streamId + "/updates");
+    console.log('GET /sse/' + streamId + '/updates');
+
     if (!(await getState(streamId))) return res.status(404).send();
 
     res.setHeader('Content-Type', 'text/event-stream');
@@ -262,14 +248,14 @@ app.get('/sse/:streamId/updates', async (req, res) => {
 });
 
 function broadcast(streamId: string, state: StreamState) {
-    console.log("broadcast");
+    console.log('broadcasting update for stream: ' + streamId);
     for (const res of sseClients.get(streamId) || []) {
-        res.write(`data: ${JSON.stringify(state)}\n\n`);
+        res.write('data: ' + JSON.stringify(state) + '\n\n');
     }
 }
 
 redisSub.pSubscribe('updates:*', (message, channel) => {
-    console.log("pSubscribe");
+    console.log('pubsub message received on channel: ' + channel);
     const streamId = channel.split(':')[1];
     broadcast(streamId, JSON.parse(message));
 });
@@ -282,15 +268,12 @@ app.post(
     '/webhook',
     express.raw({ type: '*/*' }),
     async (req: Request, res: Response) => {
-        console.log("/webhook");
-        let event: WebhookEvent;
+        console.log('POST /webhook');
 
+        let event: WebhookEvent;
         try {
             const body = req.body.toString('utf8');
-            event = await webhookReceiver.receive(
-                body,
-                req.headers.authorization,
-            );
+            event = await webhookReceiver.receive(body, req.headers.authorization);
 
             console.log('[WEBHOOK] Event received:', {
                 event: event.event,
@@ -307,44 +290,35 @@ app.post(
 
         if (event.event === 'participant_joined' && event.participant) {
             await redis.sAdd(
-                `stream:participants:${streamId}`,
+                'stream:participants:' + streamId,
                 event.participant.identity,
             );
 
-            // remove idle TTL if present
-            await redis.persist(`stream:meta:${streamId}`);
-            await redis.persist(`stream:participants:${streamId}`);
+            await redis.persist('stream:meta:' + streamId);
+            await redis.persist('stream:participants:' + streamId);
         }
 
         if (event.event === 'participant_left' && event.participant) {
             await redis.sRem(
-                `stream:participants:${streamId}`,
+                'stream:participants:' + streamId,
                 event.participant.identity,
             );
 
-            const remaining = await redis.sCard(
-                `stream:participants:${streamId}`,
-            );
+            const remaining = await redis.sCard('stream:participants:' + streamId);
 
             if (remaining === 0) {
-                await redis.expire(`stream:meta:${streamId}`, IDLE_TTL_SECONDS);
-                await redis.expire(
-                    `stream:participants:${streamId}`,
-                    IDLE_TTL_SECONDS,
-                );
+                await redis.expire('stream:meta:' + streamId, IDLE_TTL_SECONDS);
+                await redis.expire('stream:participants:' + streamId, IDLE_TTL_SECONDS);
             }
         }
 
         if (event.event === 'room_finished') {
-            await redis.hSet(`stream:meta:${streamId}`, {
+            await redis.hSet('stream:meta:' + streamId, {
                 status: 'finished',
             });
 
-            await redis.expire(`stream:meta:${streamId}`, STREAM_TTL_SECONDS);
-            await redis.expire(
-                `stream:participants:${streamId}`,
-                STREAM_TTL_SECONDS,
-            );
+            await redis.expire('stream:meta:' + streamId, STREAM_TTL_SECONDS);
+            await redis.expire('stream:participants:' + streamId, STREAM_TTL_SECONDS);
         }
 
         await publishState(streamId);
@@ -357,7 +331,7 @@ app.post(
 /* ------------------------------------------------------------------ */
 
 app.get('/streams', async (_req, res) => {
-    console.log("/streams");
+    console.log('GET /streams - listing active streams');
     const keys = await redis.keys('stream:meta:*');
     const streams = [];
 
@@ -382,7 +356,7 @@ app.get('/streams', async (_req, res) => {
 /* ------------------------------------------------------------------ */
 
 async function updateMetrics() {
-    console.log("updateMetrics");
+    console.log('updateMetrics - recalculating gauges');
     let active = 0;
     let participants = 0;
 
@@ -401,17 +375,18 @@ async function updateMetrics() {
 }
 
 app.get('/metrics', async (_req, res) => {
-    console.log("/metrics");
+    console.log('GET /metrics');
     res.setHeader('Content-Type', register.contentType);
     res.end(await register.metrics());
 });
 
-const CLEANUP_INTERVAL_MS = 4 * 60 * 1000; // every 4 minutes
-const MAX_STALE_ACTIVE_SECONDS = 15 * 60; // consider active room stale after 15 min with 0 participants
-/**
- * Periodic cleanup job that removes stale/zombie stream metadata
- * when LiveKit room no longer exists or has been empty for too long
- */
+/* ------------------------------------------------------------------ */
+/* CLEANUP JOB */
+/* ------------------------------------------------------------------ */
+
+const CLEANUP_INTERVAL_MS = 4 * 60 * 1000; // 4 minutes
+const MAX_STALE_ACTIVE_SECONDS = 15 * 60; // 15 minutes empty → stale
+
 async function cleanupStaleStreams() {
     console.log('[CLEANUP] Starting stale streams check...');
 
@@ -423,46 +398,42 @@ async function cleanupStaleStreams() {
 
     const streamIds = metaKeys.map(k => k.replace('stream:meta:', ''));
 
-    // Ask LiveKit which of these rooms still actually exist
     let existingRooms: { name: string }[] = [];
     try {
         existingRooms = await roomService.listRooms(streamIds);
     } catch (err) {
-        console.error('[CLEANUP] Failed to list rooms from LiveKit:', err);
+        console.error('[CLEANUP] Failed to list rooms from LiveKit: ' + err);
         return;
     }
 
     const existingRoomNames = new Set(existingRooms.map(r => r.name));
 
     for (const streamId of streamIds) {
-        const metaKey = `stream:meta:${streamId}`;
-        const participantsKey = `stream:participants:${streamId}`;
+        const metaKey = 'stream:meta:' + streamId;
+        const participantsKey = 'stream:participants:' + streamId;
 
         const meta = await redis.hGetAll(metaKey);
-        if (!meta.status) continue; // already gone
+        if (!meta.status) continue;
 
         const status = meta.status as 'active' | 'finished';
 
-        // 1. Finished rooms should already have TTL → optional extra cleanup
         if (status === 'finished') {
             const ttl = await redis.ttl(metaKey);
-            if (ttl <= 0 && ttl !== -1) { // no TTL or already expired
+            if (ttl <= 0 && ttl !== -1) {
                 await redis.del(metaKey);
                 await redis.del(participantsKey);
-                console.log(`[CLEANUP] Removed finished zombie: ${streamId}`);
+                console.log('[CLEANUP] Removed finished zombie: ' + streamId);
             }
             continue;
         }
 
-        // 2. Active rooms that no longer exist in LiveKit → clean up
         if (!existingRoomNames.has(streamId)) {
             await redis.del(metaKey);
             await redis.del(participantsKey);
-            console.log(`[CLEANUP] Removed stale active room (missing on LiveKit): ${streamId}`);
+            console.log('[CLEANUP] Removed stale active room (missing on LiveKit): ' + streamId);
             continue;
         }
 
-        // 3. Optional: Extra check — long-empty active rooms
         const participantCount = await redis.sCard(participantsKey);
         if (participantCount === 0) {
             const startedStr = meta.started_at || '1970-01-01T00:00:00Z';
@@ -472,12 +443,11 @@ async function cleanupStaleStreams() {
             if (ageSeconds > MAX_STALE_ACTIVE_SECONDS) {
                 try {
                     await roomService.deleteRoom(streamId);
-                    console.log(`[CLEANUP] Force deleted long-empty room: ${streamId}`);
+                    console.log('[CLEANUP] Force deleted long-empty room: ' + streamId);
                 } catch (err) {
-                    console.warn(`[CLEANUP] Failed to force delete ${streamId}:`, err);
+                    console.warn('[CLEANUP] Failed to force delete ' + streamId + ': ' + err);
                 }
 
-                // Mark as finished and let TTL take care of the rest
                 await redis.hSet(metaKey, {
                     status: 'finished',
                     ended_at: new Date().toISOString(),
@@ -491,9 +461,7 @@ async function cleanupStaleStreams() {
         }
     }
 
-    // Refresh metrics after cleanup
     await updateMetrics();
-
     console.log('[CLEANUP] Finished.');
 }
 
@@ -502,15 +470,14 @@ async function cleanupStaleStreams() {
 /* ------------------------------------------------------------------ */
 if (process.env.NODE_ENV !== 'test') {
     const server = app.listen(port, () => {
-        console.log(`Server running on port ${port}`);
+        console.log('Server running on port ' + port);
     });
 
-// Periodic cleanup job
     const cleanupTimer = setInterval(async () => {
         try {
             await cleanupStaleStreams();
         } catch (err) {
-            console.error('[CLEANUP] Error during cleanup job:', err);
+            console.error('[CLEANUP] Error during cleanup job: ' + err);
         }
     }, CLEANUP_INTERVAL_MS);
 
