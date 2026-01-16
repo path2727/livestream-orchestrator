@@ -408,16 +408,22 @@ app.get('/metrics', async (_req, res) => {
 
 const CLEANUP_INTERVAL_MS = 4 * 60 * 1000; // every 4 minutes
 const MAX_STALE_ACTIVE_SECONDS = 15 * 60; // consider active room stale after 15 min with 0 participants
-
+/**
+ * Periodic cleanup job that removes stale/zombie stream metadata
+ * when LiveKit room no longer exists or has been empty for too long
+ */
 async function cleanupStaleStreams() {
     console.log('[CLEANUP] Starting stale streams check...');
 
     const metaKeys = await redis.keys('stream:meta:*');
-    if (metaKeys.length === 0) return;
+    if (metaKeys.length === 0) {
+        console.log('[CLEANUP] No streams found.');
+        return;
+    }
 
     const streamIds = metaKeys.map(k => k.replace('stream:meta:', ''));
 
-    // Batch check which rooms still exist on LiveKit side
+    // Ask LiveKit which of these rooms still actually exist
     let existingRooms: { name: string }[] = [];
     try {
         existingRooms = await roomService.listRooms(streamIds);
@@ -437,28 +443,30 @@ async function cleanupStaleStreams() {
 
         const status = meta.status as 'active' | 'finished';
 
+        // 1. Finished rooms should already have TTL → optional extra cleanup
         if (status === 'finished') {
-            // TTL should handle it, but we can force delete if very old
             const ttl = await redis.ttl(metaKey);
-            if (ttl <= 0 && ttl !== -1) { // -1 = no expire, -2 = not exist
-                await redis.del(metaKey, participantsKey);
+            if (ttl <= 0 && ttl !== -1) { // no TTL or already expired
+                await redis.del(metaKey);
+                await redis.del(participantsKey);
                 console.log(`[CLEANUP] Removed finished zombie: ${streamId}`);
             }
             continue;
         }
 
-        // Active stream checks
+        // 2. Active rooms that no longer exist in LiveKit → clean up
         if (!existingRoomNames.has(streamId)) {
-            // Room gone on LiveKit side → clean up our state
-            await redis.del(metaKey, participantsKey);
+            await redis.del(metaKey);
+            await redis.del(participantsKey);
             console.log(`[CLEANUP] Removed stale active room (missing on LiveKit): ${streamId}`);
             continue;
         }
 
-        // Optional: extra paranoia - check participant count staleness
+        // 3. Optional: Extra check — long-empty active rooms
         const participantCount = await redis.sCard(participantsKey);
         if (participantCount === 0) {
-            const started = new Date(meta.started_at || 0);
+            const startedStr = meta.started_at || '1970-01-01T00:00:00Z';
+            const started = new Date(startedStr);
             const ageSeconds = (Date.now() - started.getTime()) / 1000;
 
             if (ageSeconds > MAX_STALE_ACTIVE_SECONDS) {
@@ -469,14 +477,23 @@ async function cleanupStaleStreams() {
                     console.warn(`[CLEANUP] Failed to force delete ${streamId}:`, err);
                 }
 
-                await redis.hSet(metaKey, { status: 'finished', ended_at: new Date().toISOString() });
+                // Mark as finished and let TTL take care of the rest
+                await redis.hSet(metaKey, {
+                    status: 'finished',
+                    ended_at: new Date().toISOString(),
+                });
+
                 await redis.expire(metaKey, STREAM_TTL_SECONDS);
                 await redis.expire(participantsKey, STREAM_TTL_SECONDS);
+
+                await publishState(streamId);
             }
         }
     }
 
-    await updateMetrics(); // refresh gauges
+    // Refresh metrics after cleanup
+    await updateMetrics();
+
     console.log('[CLEANUP] Finished.');
 }
 
