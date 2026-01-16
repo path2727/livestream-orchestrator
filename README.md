@@ -1,8 +1,10 @@
 # Livestream Orchestrator API
 
-API to manage LiveKit rooms, track state in Redis, and broadcast updates via SSE. Handles concurrency with async/await, idempotency in endpoints, and scaling via Redis Pub/Sub.
+API to manage LiveKit rooms, track state in Redis, and broadcast updates via SSE. Handles concurrency with async/await,
+idempotency in endpoints, and scaling via Redis Pub/Sub.
 
 ## Architecture
+
 - Express.js for API.
 - LiveKit SDK for room management.
 - Redis for state (hashes/sets with TTL for ephemerality).
@@ -12,12 +14,14 @@ API to manage LiveKit rooms, track state in Redis, and broadcast updates via SSE
 - Cleanup via TTL on finished/idle rooms.
 
 ## Setup
+
 1. `npm install`
 2. Copy .env.example to .env and fill values.
 3. `npm run build`
 4. `npm start` (or PM2 for production).
 
 ## Usage
+
 - POST /streams {name: "room"}: Create room.
 - GET /streams: List active rooms.
 - POST /streams/:id/join {userId: "user"}: Get join token.
@@ -28,16 +32,23 @@ API to manage LiveKit rooms, track state in Redis, and broadcast updates via SSE
 
 Client: index.html (list/add rooms), room.html (view/join/leave/stop).
 
+NOTE: when you leave the room page the livekit client automatically leaves the room (for the users created there on that page).  
+The webhook will get called and the state updated on the server.
+
 ## Design Choices
+
 - Redis for state: Atomic ops for concurrency, TTL for cleanup.
 - SSE over WS: Simpler for one-way updates.
 - Idempotency: Check existing rooms on create/delete.
 - Scaling: Pub/Sub for multi-instance broadcasts.
 
 ## Tests
-Run npm test to execute the Jest tests for key endpoints like creating streams and listing active rooms. This verifies basic functionality without external dependencies (mocks LiveKit calls for speed).
+
+Run npm test to execute the Jest tests for key endpoints like creating streams and listing active rooms. This verifies
+basic functionality without external dependencies (mocks LiveKit calls for speed).
 
 ## .env.example
+
 ```properties
 LIVEKIT_HOST=https://your-project.livekit.cloud
 LIVEKIT_API_KEY=your_api_key
@@ -45,6 +56,7 @@ LIVEKIT_API_SECRET=your_api_secret
 PORT=3000
 REDIS_URL=redis://myusername:mypassword@my-redis-host.example.com:6379
 ```
+
 ## nginx setup for sse
 
 ```bash
