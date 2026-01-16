@@ -199,7 +199,24 @@
 
 
             // Connect to the room
-            await room.connect('wss://test-0kg09b1m.livekit.cloud', token);
+            //await room.connect('wss://test-0kg09b1m.livekit.cloud', token);
+
+            await room.connect('wss://test-0kg09b1m.livekit.cloud', token).then(() => {
+                console.log('Successfully connected to room!');
+            }).catch(err => {
+                console.error('Connection failed:', err);
+            });
+
+            room.on('disconnected', (reason) => {
+                console.log('Disconnected from room. Reason:', reason);
+            });
+
+            room.on('participantConnected', (participant) => {
+                console.log('Participant connected (local/remote):', participant.identity);
+            });
+            room.on('participantDisconnected', (participant) => {
+                console.log('Participant disconnected:', participant.identity);
+            });
 
         } catch (err) {
             errorEl.textContent = err.message;

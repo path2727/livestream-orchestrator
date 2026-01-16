@@ -116,6 +116,7 @@ register.registerMetric(totalParticipants);
 /* ------------------------------------------------------------------ */
 
 async function getState(streamId: string): Promise<StreamState | null> {
+    console.log("getState: " + streamId );
     const meta = await redis.hGetAll(`stream:meta:${streamId}`);
     if (!meta.status) return null;
 
@@ -133,6 +134,7 @@ async function getState(streamId: string): Promise<StreamState | null> {
 }
 
 async function publishState(streamId: string) {
+    console.log("publishState: " + streamId );
     const state = await getState(streamId);
     if (!state) return;
 
@@ -149,6 +151,7 @@ app.post('/streams', async (req, res) => {
     if (error) return res.status(400).json({ error: error.message });
 
     const streamId = value.name;
+    console.log("POST /streams/" + streamId );
 
     const existing = await roomService.listRooms([streamId]);
     if (existing.length > 0) {
@@ -176,6 +179,7 @@ app.post('/streams', async (req, res) => {
 app.delete('/streams/:streamId', async (req, res) => {
     const { streamId } = req.params;
 
+    console.log("DELETE /streams/" + streamId );
     try {
         await roomService.deleteRoom(streamId);
     } catch {}
@@ -202,6 +206,8 @@ app.post('/streams/:streamId/join', async (req, res) => {
     const { streamId } = req.params;
     const { userId } = value;
 
+    console.log("/streams/" + streamId + "/join");
+    console.log("userId: " + userId );
     const token = new AccessToken(apiKey, apiSecret, {
         identity: userId,
     });
@@ -215,7 +221,10 @@ app.post('/streams/:streamId/join', async (req, res) => {
 });
 
 app.get('/streams/:streamId/state', async (req, res) => {
-    const state = await getState(req.params.streamId);
+
+    const { streamId } = req.params;
+    console.log("/streams/" + streamId + "/state");
+    const state = await getState(streamId);
     if (!state) return res.status(404).send();
     res.json(state);
 });
@@ -228,6 +237,7 @@ const sseClients = new Map<string, Response[]>();
 
 app.get('/sse/:streamId/updates', async (req, res) => {
     const { streamId } = req.params;
+    console.log("/sse/" + streamId + "/updates");
     if (!(await getState(streamId))) return res.status(404).send();
 
     res.setHeader('Content-Type', 'text/event-stream');
@@ -251,12 +261,14 @@ app.get('/sse/:streamId/updates', async (req, res) => {
 });
 
 function broadcast(streamId: string, state: StreamState) {
+    console.log("broadcast");
     for (const res of sseClients.get(streamId) || []) {
         res.write(`data: ${JSON.stringify(state)}\n\n`);
     }
 }
 
 redisSub.pSubscribe('updates:*', (message, channel) => {
+    console.log("pSubscribe");
     const streamId = channel.split(':')[1];
     broadcast(streamId, JSON.parse(message));
 });
@@ -269,6 +281,7 @@ app.post(
     '/webhook',
     express.raw({ type: '*/*' }),
     async (req: Request, res: Response) => {
+        console.log("/webhook");
         let event: WebhookEvent;
 
         try {
@@ -277,6 +290,14 @@ app.post(
                 body,
                 req.headers.authorization,
             );
+
+            console.log('[WEBHOOK] Event received:', {
+                event: event.event,
+                room: event.room?.name,
+                participant: event.participant?.identity,
+                reason: event.participant?.disconnectedReason,   // ← very useful!
+                timestamp: new Date().toISOString()
+            });
         } catch {
             return res.status(401).send();
         }
@@ -336,6 +357,7 @@ app.post(
 /* ------------------------------------------------------------------ */
 
 app.get('/streams', async (_req, res) => {
+    console.log("/streams");
     const keys = await redis.keys('stream:meta:*');
     const streams = [];
 
@@ -360,6 +382,7 @@ app.get('/streams', async (_req, res) => {
 /* ------------------------------------------------------------------ */
 
 async function updateMetrics() {
+    console.log("updateMetrics");
     let active = 0;
     let participants = 0;
 
@@ -378,6 +401,7 @@ async function updateMetrics() {
 }
 
 app.get('/metrics', async (_req, res) => {
+    console.log("/metrics");
     res.setHeader('Content-Type', register.contentType);
     res.end(await register.metrics());
 });
