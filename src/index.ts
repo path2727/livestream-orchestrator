@@ -17,7 +17,7 @@ dotenv.config();
 /* ------------------------------------------------------------------ */
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = Number(process.env.PORT || 3000);
 
 const livekitHost = process.env.LIVEKIT_HOST!;
 const apiKey = process.env.LIVEKIT_API_KEY!;
@@ -61,6 +61,7 @@ interface StreamState {
     status: 'active' | 'finished';
     participants: string[];
     startedAt: string;
+    endedAt?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -99,11 +100,11 @@ register.registerMetric(totalParticipants);
 /* ------------------------------------------------------------------ */
 
 async function getState(streamId: string): Promise<StreamState | null> {
-    const meta = await redis.hGetAll(`stream:${streamId}`);
+    const meta = await redis.hGetAll(`stream:meta:${streamId}`);
     if (!meta.status) return null;
 
     const participants = await redis.sMembers(
-        `stream:${streamId}:participants`,
+        `stream:participants:${streamId}`,
     );
 
     return {
@@ -111,6 +112,7 @@ async function getState(streamId: string): Promise<StreamState | null> {
         status: meta.status as 'active' | 'finished',
         participants,
         startedAt: meta.started_at,
+        endedAt: meta.ended_at || undefined,
     };
 }
 
@@ -142,13 +144,14 @@ app.post('/streams', async (req, res) => {
         emptyTimeout: 300,
     });
 
-    await redis.hSet(`stream:${streamId}`, {
+    await redis.hSet(`stream:meta:${streamId}`, {
         status: 'active',
         started_at: new Date().toISOString(),
     });
 
-    await redis.persist(`stream:${streamId}`);
-    await redis.persist(`stream:${streamId}:participants`);
+    // ensure no TTL
+    await redis.persist(`stream:meta:${streamId}`);
+    await redis.persist(`stream:participants:${streamId}`);
 
     await publishState(streamId);
     res.status(201).json({ streamId });
@@ -161,13 +164,16 @@ app.delete('/streams/:streamId', async (req, res) => {
         await roomService.deleteRoom(streamId);
     } catch {}
 
-    await redis.hSet(`stream:${streamId}`, {
+    await redis.hSet(`stream:meta:${streamId}`, {
         status: 'finished',
         ended_at: new Date().toISOString(),
     });
 
-    await redis.expire(`stream:${streamId}`, STREAM_TTL_SECONDS);
-    await redis.expire(`stream:${streamId}:participants`, STREAM_TTL_SECONDS);
+    await redis.expire(`stream:meta:${streamId}`, STREAM_TTL_SECONDS);
+    await redis.expire(
+        `stream:participants:${streamId}`,
+        STREAM_TTL_SECONDS,
+    );
 
     await publishState(streamId);
     res.status(204).send();
@@ -180,8 +186,14 @@ app.post('/streams/:streamId/join', async (req, res) => {
     const { streamId } = req.params;
     const { userId } = value;
 
-    const token = new AccessToken(apiKey, apiSecret, { identity: userId });
-    token.addGrant({ roomJoin: true, room: streamId });
+    const token = new AccessToken(apiKey, apiSecret, {
+        identity: userId,
+    });
+
+    token.addGrant({
+        roomJoin: true,
+        room: streamId,
+    });
 
     res.json({ token: await token.toJwt() });
 });
@@ -234,7 +246,7 @@ redisSub.pSubscribe('updates:*', (message, channel) => {
 });
 
 /* ------------------------------------------------------------------ */
-/* WEBHOOK (RAW BODY ONLY HERE) */
+/* WEBHOOK */
 /* ------------------------------------------------------------------ */
 
 app.post(
@@ -258,41 +270,42 @@ app.post(
 
         if (event.event === 'participant_joined' && event.participant) {
             await redis.sAdd(
-                `stream:${streamId}:participants`,
+                `stream:participants:${streamId}`,
                 event.participant.identity,
             );
 
-            await redis.persist(`stream:${streamId}`);
-            await redis.persist(`stream:${streamId}:participants`);
+            // remove idle TTL if present
+            await redis.persist(`stream:meta:${streamId}`);
+            await redis.persist(`stream:participants:${streamId}`);
         }
 
         if (event.event === 'participant_left' && event.participant) {
             await redis.sRem(
-                `stream:${streamId}:participants`,
+                `stream:participants:${streamId}`,
                 event.participant.identity,
             );
 
             const remaining = await redis.sCard(
-                `stream:${streamId}:participants`,
+                `stream:participants:${streamId}`,
             );
 
             if (remaining === 0) {
-                await redis.expire(`stream:${streamId}`, IDLE_TTL_SECONDS);
+                await redis.expire(`stream:meta:${streamId}`, IDLE_TTL_SECONDS);
                 await redis.expire(
-                    `stream:${streamId}:participants`,
+                    `stream:participants:${streamId}`,
                     IDLE_TTL_SECONDS,
                 );
             }
         }
 
         if (event.event === 'room_finished') {
-            await redis.hSet(`stream:${streamId}`, {
+            await redis.hSet(`stream:meta:${streamId}`, {
                 status: 'finished',
             });
 
-            await redis.expire(`stream:${streamId}`, STREAM_TTL_SECONDS);
+            await redis.expire(`stream:meta:${streamId}`, STREAM_TTL_SECONDS);
             await redis.expire(
-                `stream:${streamId}:participants`,
+                `stream:participants:${streamId}`,
                 STREAM_TTL_SECONDS,
             );
         }
@@ -307,12 +320,13 @@ app.post(
 /* ------------------------------------------------------------------ */
 
 app.get('/streams', async (_req, res) => {
-    const keys = await redis.keys('stream:*');
+    const keys = await redis.keys('stream:meta:*');
     const streams = [];
 
     for (const key of keys) {
-        const streamId = key.replace('stream:', '');
+        const streamId = key.replace('stream:meta:', '');
         const state = await getState(streamId);
+
         if (state?.status === 'active') {
             streams.push({
                 streamId,
@@ -333,8 +347,10 @@ async function updateMetrics() {
     let active = 0;
     let participants = 0;
 
-    for (const key of await redis.keys('stream:*')) {
-        const state = await getState(key.replace('stream:', ''));
+    for (const key of await redis.keys('stream:meta:*')) {
+        const streamId = key.replace('stream:meta:', '');
+        const state = await getState(streamId);
+
         if (state?.status === 'active') {
             active++;
             participants += state.participants.length;
