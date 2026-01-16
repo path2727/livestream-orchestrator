@@ -9,7 +9,7 @@ import {
 import Joi from 'joi';
 import client from 'prom-client';
 import { createClient } from 'redis';
-import { setInterval } from 'timers/promises'; // or use node-cron package
+import { setInterval, clearInterval } from 'node:timers';
 
 dotenv.config();
 
@@ -501,17 +501,33 @@ async function cleanupStaleStreams() {
 /* START */
 /* ------------------------------------------------------------------ */
 if (process.env.NODE_ENV !== 'test') {
-    app.listen(port, () => {
+    const server = app.listen(port, () => {
         console.log(`Server running on port ${port}`);
     });
 
+// Periodic cleanup job
     const cleanupTimer = setInterval(async () => {
         try {
             await cleanupStaleStreams();
         } catch (err) {
-            console.error('[CLEANUP] Error during cleanup:', err);
+            console.error('[CLEANUP] Error during cleanup job:', err);
         }
     }, CLEANUP_INTERVAL_MS);
 
-    cleanupTimer.unref();   // now works!
+    cleanupTimer.unref();
+
+    const gracefulShutdown = () => {
+        console.log('Shutting down gracefully...');
+        server.close(() => {
+            console.log('HTTP server closed.');
+        });
+        clearInterval(cleanupTimer);
+        setTimeout(() => {
+            console.log('Process exit.');
+            process.exit(0);
+        }, 3000);
+    };
+
+    process.on('SIGTERM', gracefulShutdown);
+    process.on('SIGINT', gracefulShutdown);
 }
