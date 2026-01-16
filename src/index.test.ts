@@ -13,22 +13,21 @@ jest.mock('livekit-server-sdk', () => {
     return {
         RoomServiceClient: jest.fn().mockImplementation(() => ({
             listRooms: jest.fn(async (names?: string[]) => mockLiveKit.listRooms(names)),
-            createRoom: jest.fn(async ({name}: { name: string }) => {
+            createRoom: jest.fn(async ({ name }: { name: string }) => {
                 mockLiveKit.createRoom(name);
-                return {name}; // Return minimal Room for app compatibility
+                return { name }; // Minimal return for app
             }),
             deleteRoom: jest.fn(async (name: string) => mockLiveKit.deleteRoom(name)),
         })),
         WebhookReceiver: jest.fn().mockImplementation(() => ({
-            receive: jest.fn(async (body: string) => JSON.parse(body)), // Simplified: Just parse, no auth validation
+            receive: jest.fn(async (body: string, _auth: string | undefined) => { // Ignore auth
+                return mockLiveKit.validateWebhook(body);
+            }),
         })),
-        AccessToken: jest.fn().mockImplementation((_apiKey: string, _apiSecret: string, {identity}: {
-            identity: string
-        }) => {
-            const grants: any = {};
+        AccessToken: jest.fn().mockImplementation(() => {
             return {
-                addGrant: jest.fn((grant: any) => Object.assign(grants, grant)),
-                toJwt: jest.fn(async () => 'mock-token'), // Or JSON.stringify for assertion if needed
+                addGrant: jest.fn(),
+                toJwt: jest.fn().mockResolvedValue('mock-token'),
             };
         }),
     };
