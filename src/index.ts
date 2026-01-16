@@ -40,10 +40,26 @@ const webhookReceiver = new WebhookReceiver(apiKey, apiSecret);
 const redis = createClient({
     url: process.env.REDIS_URL || 'redis://localhost:6379',
 });
+
+const redisSub = redis.duplicate();
+
+async function initRedis() {
+    await redis.connect().catch(err => console.error('redisCommands connect error:', err));
+    await redisSub.connect().catch(err => console.error('redisSub connect error:', err));
+}
+
+initRedis().catch(console.error);
+
+/*
+const redis = createClient({
+    url: process.env.REDIS_URL || 'redis://localhost:6379',
+});
 await redis.connect();
 
 const redisSub = redis.duplicate();
 await redisSub.connect();
+
+ */
 
 /* ------------------------------------------------------------------ */
 /* EXPRESS */
