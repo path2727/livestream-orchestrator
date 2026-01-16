@@ -78,11 +78,14 @@ describe('Stream API', () => {
         await request(app).post('/streams').send({ name: 'test-room' });
 
         // Simulate webhook participant join
-        await request(app).post('/webhook').send({
-            event: 'participant_joined',
-            room: { name: 'test-room' },
-            participant: { identity: 'user1' },
-        });
+        await request(app)
+            .post('/webhook')
+            .set('Authorization', 'mock-auth') // Add this line
+            .send({
+                event: 'participant_joined',
+                room: { name: 'test-room' },
+                participant: { identity: 'user1' },
+            });
 
         const participants = await mockRedis.sMembers('stream:participants:test-room');
         expect(participants).toContain('user1');
