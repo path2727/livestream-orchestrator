@@ -60,6 +60,7 @@ export const mockLiveKit = {
         try {
             return JSON.parse(body) as WebhookEvent;
         } catch (err) {
+            console.error("error", err);
             throw new Error('Invalid webhook body');
         }
     },
