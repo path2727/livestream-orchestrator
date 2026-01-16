@@ -488,11 +488,13 @@ if (process.env.NODE_ENV !== 'test') {
         console.log(`Server running on port ${port}`);
     });
 
-    setInterval(async () => {
+    const cleanupTimer = setInterval(async () => {
         try {
             await cleanupStaleStreams();
         } catch (err) {
             console.error('[CLEANUP] Error during cleanup:', err);
         }
-    }, CLEANUP_INTERVAL_MS).unref()
+    }, CLEANUP_INTERVAL_MS);
+
+    cleanupTimer.unref();   // now works!
 }
