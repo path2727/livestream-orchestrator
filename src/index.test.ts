@@ -1,7 +1,7 @@
 import request from 'supertest';
 import { app } from './index';
 import {WebhookEvent} from "livekit-server-sdk";  // Export app from index.ts
-
+import { redis, redisSub } from './index';
 jest.mock('livekit-server-sdk', () => {
     return {
         RoomServiceClient: jest.fn().mockImplementation(() => {
@@ -47,4 +47,10 @@ describe('Stream API', () => {
         expect(res.body).toHaveProperty('token');
         expect(typeof res.body.token).toBe('string');
     });
+});
+
+afterAll(async () => {
+    await redis.quit();
+    await redisSub.quit();
+
 });

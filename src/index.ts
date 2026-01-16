@@ -37,11 +37,11 @@ const webhookReceiver = new WebhookReceiver(apiKey, apiSecret);
 /* REDIS */
 /* ------------------------------------------------------------------ */
 
-const redis = createClient({
+export const redis = createClient({
     url: process.env.REDIS_URL || 'redis://localhost:6379',
 });
 
-const redisSub = redis.duplicate();
+export const redisSub = redis.duplicate();
 
 async function initRedis() {
     await redis.connect().catch(err => console.error('redisCommands connect error:', err));
