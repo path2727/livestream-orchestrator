@@ -32,7 +32,7 @@ idempotency in endpoints, and scaling via Redis Pub/Sub.
 
 Client: index.html (list/add rooms), room.html (view/join/leave/stop).
 
-NOTE: when you leave the room page the livekit client automatically leaves the room (for the users created there on that page).  
+NOTE: when you leave the room page (by browsing away) the livekit client automatically leaves the room (for the users created there on that page).  
 The webhook will get called and the state updated on the server.
 
 ## Design Choices
