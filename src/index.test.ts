@@ -19,6 +19,12 @@ jest.mock('livekit-server-sdk', () => {
                 }),
             };
         }),
+        AccessToken: jest.fn().mockImplementation(() => {
+            return {
+                addGrant: jest.fn(),
+                toJwt: jest.fn().mockResolvedValue('mock-token'),
+            };
+        }),
     };
 });
 
