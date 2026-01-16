@@ -26,10 +26,17 @@ API to manage LiveKit rooms, track state in Redis, and broadcast updates via SSE
 - DELETE /streams/:id: Stop room.
 - GET /metrics: Prometheus metrics.
 
-Client: index.html (list/add), room.html (view/join/leave/stop).
+Client: index.html (list/add rooms), room.html (view/join/leave/stop).
 
 ## Design Choices
 - Redis for state: Atomic ops for concurrency, TTL for cleanup.
 - SSE over WS: Simpler for one-way updates.
 - Idempotency: Check existing rooms on create/delete.
 - Scaling: Pub/Sub for multi-instance broadcasts.
+
+## .env.example
+LIVEKIT_HOST=https://your-project.livekit.cloud
+LIVEKIT_API_KEY=your_api_key
+LIVEKIT_API_SECRET=your_api_secret
+PORT=3000
+REDIS_URL=redis://myusername:mypassword@my-redis-host.example.com:6379
