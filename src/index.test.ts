@@ -1,14 +1,15 @@
 import request from 'supertest';
-import {app} from './index';
-import {mockLiveKit} from '../test/mocks/livekit';
-import {mockRedis} from '../test/mocks/redis';
+import { app } from './index';
+import { mockLiveKit } from '../test/mocks/livekit';
+import { mockRedis } from '../test/mocks/redis';
 
 jest.mock('redis', () => {
-    const {mockRedis} = require('../test/mocks/redis');
+    const { mockRedis } = require('../test/mocks/redis');
     return {
         createClient: jest.fn().mockImplementation(() => mockRedis),
     };
 });
+
 jest.mock('livekit-server-sdk', () => {
     return {
         RoomServiceClient: jest.fn().mockImplementation(() => ({
@@ -20,8 +21,8 @@ jest.mock('livekit-server-sdk', () => {
             deleteRoom: jest.fn(async (name: string) => mockLiveKit.deleteRoom(name)),
         })),
         WebhookReceiver: jest.fn().mockImplementation(() => ({
-            receive: jest.fn(async (body: string, _auth: string | undefined) => { // Ignore auth
-                console.log("body: " + body);
+            receive: jest.fn(async (body: string, _auth: string | undefined) => {
+                console.log('webhook body received: ' + body);
                 return mockLiveKit.validateWebhook(body);
             }),
         })),
@@ -41,7 +42,7 @@ beforeEach(() => {
 
 describe('Stream API', () => {
     test('Create stream', async () => {
-        const res = await request(app).post('/streams').send({name: 'test-stream'});
+        const res = await request(app).post('/streams').send({ name: 'test-stream' });
         expect(res.status).toBe(201);
         expect(res.body).toHaveProperty('streamId', 'test-stream');
     }, 60000);
@@ -53,7 +54,10 @@ describe('Stream API', () => {
     });
 
     test('Join stream', async () => {
-        const res = await request(app).post('/streams/test-stream/join').send({userId: 'test-user'});
+        const res = await request(app)
+            .post('/streams/test-stream/join')
+            .send({ userId: 'test-user' });
+
         expect(res.status).toBe(200);
         expect(res.body).toHaveProperty('token');
         expect(typeof res.body.token).toBe('string');
@@ -63,15 +67,15 @@ describe('Stream API', () => {
         await request(app).post('/streams').send({ name: 'test-room' });
 
         const joinEvent = mockLiveKit.participantJoin('test-room', 'user1');
-
         const joinStr = JSON.stringify(joinEvent);
-        console.log("joinEvent: " + joinStr);
+
+        console.log('joinEvent payload: ' + joinStr);
 
         const webhookRes = await request(app)
             .post('/webhook')
             .send(joinStr);
 
-        expect(webhookRes.status).toBe(200); // Confirms handler processed without error
+        expect(webhookRes.status).toBe(200);
 
         const participants = await mockRedis.sMembers('stream:participants:test-room');
         expect(participants).toContain('user1');
@@ -80,7 +84,9 @@ describe('Stream API', () => {
     test('Redis mock handles participant leave', async () => {
         await request(app).post('/streams').send({ name: 'test-room' });
 
-        mockLiveKit.participantJoin('test-room', 'user1'); // Add via mock for setup
+        // Setup: add participant first
+        mockLiveKit.participantJoin('test-room', 'user1');
+
         const leaveEvent = mockLiveKit.participantLeave('test-room', 'user1');
 
         const webhookRes = await request(app)
@@ -105,19 +111,24 @@ describe('Stream API', () => {
         expect(webhookRes.status).toBe(200);
 
         const ttl = await mockRedis.ttl('stream:meta:test-room');
-        expect(ttl).toBeGreaterThan(0); // Confirms expiration set
+        expect(ttl).toBeGreaterThan(0);
     });
 
-    test('Publish triggers sub callback', async () =>    {
+    test('Publish triggers sub callback', async () => {
         const callback = jest.fn();
         await mockRedis.pSubscribe('updates:test-room', callback);
 
-        await mockRedis.publish('updates:test-room', JSON.stringify({ status: 'active' }));
+        await mockRedis.publish(
+            'updates:test-room',
+            JSON.stringify({ status: 'active' })
+        );
 
-        expect(callback).toHaveBeenCalledWith(expect.any(String), 'updates:test-room');
+        expect(callback).toHaveBeenCalledWith(
+            expect.any(String),
+            'updates:test-room'
+        );
     });
 });
-
 
 afterAll(async () => {
     await mockRedis.quit();

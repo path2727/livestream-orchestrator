@@ -18,7 +18,6 @@
 </head>
 <body>
 
-
 <h1>Active Streams</h1>
 <!-- List of existing rooms -->
 <ul id="streams"></ul>
@@ -46,13 +45,14 @@
             data.forEach(stream => {
                 const li = document.createElement('li');
                 li.innerHTML = `
-                        <a href="room.html?streamId=${stream.streamId}">${stream.streamId}</a>
-                        (Participants: ${stream.participantCount}, Started: ${stream.startedAt})
-                    `;
+                    <a href="room.html?streamId=${stream.streamId}">${stream.streamId}</a>
+                    (Participants: ${stream.participantCount}, Started: ${stream.startedAt})
+                `;
                 ul.appendChild(li);
             });
+            console.log('Loaded ' + data.length + ' active streams');
         } catch (err) {
-            console.error('Error loading rooms:', err);
+            console.error('Error loading rooms: ' + err.message);
         }
     }
 
@@ -74,18 +74,30 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: roomName })
             });
-            if (!res.ok) throw new Error('Failed to add room');
+
+            if (!res.ok) {
+                const errorData = await res.json().catch(() => ({}));
+                throw new Error(errorData.error || 'Failed to add room');
+            }
+
+            console.log('Successfully created room: ' + roomName);
             document.getElementById('room-name').value = '';  // Clear input
             loadRooms();  // Refresh list
         } catch (err) {
+            console.error('Error creating room: ' + err.message);
             errorEl.textContent = err.message;
         }
     });
 
-    // Load rooms on page load
+    // Load rooms when page loads
+    console.log('Active Streams page loaded - fetching initial room list...');
     loadRooms();
 
-    setInterval(loadRooms, 10000);
+    // Auto-refresh every 10 seconds
+    setInterval(() => {
+        console.log('Auto-refreshing room list...');
+        loadRooms();
+    }, 10000);
 </script>
 </body>
 </html>

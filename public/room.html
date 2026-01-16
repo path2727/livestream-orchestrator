@@ -105,7 +105,7 @@
     }
     document.getElementById('streamId').textContent = streamId;
 
-    const apiUrl = 'https://test-orch.floro.co';  // Update to deployed URL if needed
+    const apiUrl = 'https://test-orch.floro.co';  // Update to your deployed URL if needed
 
     // Function to update UI with state
     function updateUI(state) {
@@ -129,33 +129,46 @@
             if (!res.ok) throw new Error('Failed to fetch state');
             const state = await res.json();
             updateUI(state);
+            console.log('Initial state loaded for room: ' + streamId);
         } catch (err) {
-            console.error('Error loading state:', err);
+            console.error('Error loading initial state: ' + err.message);
         }
     }
 
     // SSE for real-time updates
     let eventSource = new EventSource(`${apiUrl}/sse/${streamId}/updates`);
+
     eventSource.onopen = () => {
-        console.log('SSE connection opened for', streamId);
+        console.log('SSE connection opened for room: ' + streamId);
     };
+
     eventSource.addEventListener('message', (event) => {
-        console.log('SSE message event:', event.data);  // Fallback if onmessage not firing
-        const state = JSON.parse(event.data);
-        updateUI(state);
+        console.log('SSE message (fallback): ' + event.data);
+        try {
+            const state = JSON.parse(event.data);
+            updateUI(state);
+        } catch (e) {
+            console.error('Failed to parse SSE fallback message: ' + e.message);
+        }
     });
+
     eventSource.onmessage = (event) => {
-        console.log('SSE message received:', event.data);
-        const state = JSON.parse(event.data);
-        updateUI(state);
+        console.log('SSE message received: ' + event.data);
+        try {
+            const state = JSON.parse(event.data);
+            updateUI(state);
+        } catch (e) {
+            console.error('Failed to parse SSE message: ' + e.message);
+        }
     };
+
     eventSource.onerror = (err) => {
-        console.error('SSE error:', err);
+        console.error('SSE connection error: ' + err);
         // Reconnect logic
         setTimeout(() => {
-            console.log('SSE reconnecting...');
+            console.log('Attempting SSE reconnect for room: ' + streamId);
             eventSource.close();
-            eventSource = new EventSource(`${apiUrl}/streams/${streamId}/updates`);
+            eventSource = new EventSource(`${apiUrl}/sse/${streamId}/updates`);
         }, 5000);
     };
 
@@ -176,20 +189,24 @@
         try {
             const res = await fetch(`${apiUrl}/streams/${streamId}/join`, {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({userId})
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId })
             });
+
             const data = await res.json();
             if (!res.ok) {
                 throw new Error(data.error || 'Failed to join');
             }
-            const {token} = data;
+
+            const { token } = data;
             if (!token) {
                 throw new Error('No token returned');
             }
-            successEl.textContent = `Joined successfully!`; // Token: ${token.substring(0, 20)}... (copy full token for use: ${token})`;
+
+            successEl.textContent = 'Joined successfully!';
             document.getElementById('userId').value = '';  // Clear input
 
+            console.log('Join request successful - received token for user: ' + userId);
 
             // Connect to the room using LiveKit client SDK
             const room = new LivekitClient.Room({
@@ -197,28 +214,28 @@
                 dynacast: true
             });
 
-
-            // Connect to the room
-            //await room.connect('wss://test-0kg09b1m.livekit.cloud', token);
-
-            await room.connect('wss://test-0kg09b1m.livekit.cloud', token).then(() => {
-                console.log('Successfully connected to room!');
-            }).catch(err => {
-                console.error('Connection failed:', err);
-            });
+            await room.connect('wss://test-0kg09b1m.livekit.cloud', token)
+                .then(() => {
+                    console.log('Successfully connected to LiveKit room: ' + streamId);
+                })
+                .catch(err => {
+                    console.error('LiveKit connection failed: ' + err.message);
+                });
 
             room.on('disconnected', (reason) => {
-                console.log('Disconnected from room. Reason:', reason);
+                console.log('Disconnected from room. Reason: ' + reason);
             });
 
             room.on('participantConnected', (participant) => {
-                console.log('Participant connected (local/remote):', participant.identity);
+                console.log('Participant connected: ' + participant.identity);
             });
+
             room.on('participantDisconnected', (participant) => {
-                console.log('Participant disconnected:', participant.identity);
+                console.log('Participant disconnected: ' + participant.identity);
             });
 
         } catch (err) {
+            console.error('Error during join process: ' + err.message);
             errorEl.textContent = err.message;
         }
     });
@@ -231,16 +248,20 @@
         if (!confirm('Are you sure you want to stop this room?')) return;
 
         try {
-            const res = await fetch(`${apiUrl}/streams/${streamId}`, {method: 'DELETE'});
+            const res = await fetch(`${apiUrl}/streams/${streamId}`, { method: 'DELETE' });
             if (!res.ok && res.status !== 204) throw new Error('Failed to stop room');
+
+            console.log('Room successfully stopped: ' + streamId);
             alert('Room stopped successfully');
             window.location.href = '/';  // Redirect to list
         } catch (err) {
+            console.error('Error stopping room: ' + err.message);
             errorEl.textContent = err.message;
         }
     });
 
     // Load initial state on page load
+    console.log('Room view loaded for stream: ' + streamId);
     loadInitialState();
 </script>
 </body>
